@@ -25,3 +25,12 @@ describe("InterfaceEditor: alvos de toque no celular", () => {
     }
   });
 });
+
+describe("InterfaceEditor: perfil suporte (spec 2026-11-11 §7)", () => {
+  it("o seletor oferece o preset suporte ao lado dos outros dois", () => {
+    render(<InterfaceEditor value={INTERFACE_COMPLETA} onChange={vi.fn()} role="manager" />);
+    const seletor = screen.getByLabelText("Perfil de interface");
+    expect(seletor.querySelector('option[value="suporte"]')).not.toBeNull();
+    expect(screen.getByText("Suporte")).toBeInTheDocument();
+  });
+});

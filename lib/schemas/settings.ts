@@ -1225,3 +1225,53 @@ export function entradaAutomaticaNoFunilDeclarada(settings: unknown): EntradaAut
       : undefined;
   return entradaAutomaticaNoFunilSchema.parse(raiz?.[ENTRADA_AUTOMATICA_NO_FUNIL_CHAVE] ?? {});
 }
+
+/**
+ * A config de ATENDIMENTO da organização — `organizations.settings.atendimento`
+ * (spec 2026-11-11 §3.7 e §4). Irmã de `settings.routing`, escrita pela rota
+ * dedicada `/api/v1/settings/atendimento` (manager+, auditada).
+ *
+ *   * `somente_humano` — o interruptor "atendimento 100% humano". Com ele
+ *     ligado a IA não responde nenhuma conversa da org; quem respeita é o
+ *     gate de elegibilidade (motivo `org_somente_humano`). Só `true` EXPLÍCITO
+ *     liga — ausente/lixo é o comportamento de sempre.
+ *   * `saudacao_na_assumida.{ativo, template}` — a mensagem que o sistema
+ *     envia quando um HUMANO assume a conversa (claim, transferência,
+ *     roteamento, automação, MCP — todos passam pelo ponto único
+ *     `fn_conversation_assign`). O template é 100% da org: o caminho de
+ *     envio só lê a config; `SAUDACAO_PADRAO` é o SEED da tela, dado editável,
+ *     nunca string embutida no comportamento. Placeholders: [nome], [empresa].
+ *
+ * Nunca lança: esta leitura roda no gate de elegibilidade (hot path do
+ * atendimento), e um throw ali silenciaria ou ligaria a IA por engano.
+ */
+export const ATENDIMENTO_CHAVE = "atendimento";
+
+/** Seed editável da tela — ver o bloco acima sobre o que é dado e o que é comportamento. */
+export const SAUDACAO_PADRAO = "Olá, meu nome é [nome], como posso ajudar?";
+
+export const atendimentoSettingsSchema = z
+  .object({
+    somente_humano: z.boolean().catch(false),
+    saudacao_na_assumida: z
+      .object({
+        ativo: z.boolean().catch(false),
+        template: z.string().max(1000).catch(SAUDACAO_PADRAO),
+      })
+      .catch({ ativo: false, template: SAUDACAO_PADRAO }),
+  })
+  .catch({
+    somente_humano: false,
+    saudacao_na_assumida: { ativo: false, template: SAUDACAO_PADRAO },
+  });
+
+export type AtendimentoSettings = z.infer<typeof atendimentoSettingsSchema>;
+
+/** O bloco lido de `organizations.settings`. Nunca lança. */
+export function atendimentoDeclarado(settings: unknown): AtendimentoSettings {
+  const raiz =
+    settings && typeof settings === "object" && !Array.isArray(settings)
+      ? (settings as Record<string, unknown>)
+      : undefined;
+  return atendimentoSettingsSchema.parse(raiz?.[ATENDIMENTO_CHAVE] ?? {});
+}

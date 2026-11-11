@@ -21,6 +21,13 @@ interface CloseArgs {
    * que ninguém fez.
    */
   devolver_ao_automatico?: boolean;
+  /**
+   * Registro de atendimento (spec 2026-11-11 §5) — o diálogo pergunta título
+   * + conteúdo + desfecho quando a conversa tem demanda atual. A rota encerra
+   * a demanda DEPOIS de fechar: recusa no registro não derruba o fechamento,
+   * e o motivo volta em `registro` na resposta.
+   */
+  registro?: { titulo: string; conteudo?: string; desfecho?: string };
 }
 
 /**
@@ -32,7 +39,10 @@ interface CloseArgs {
  * sobre a trava que virou a issue #3313.
  */
 interface RespostaDeFechamento {
-  data: Conversation & { devolucao?: { ok: boolean; motivo?: string } | null };
+  data: Conversation & {
+    devolucao?: { ok: boolean; motivo?: string } | null;
+    registro?: { ok: boolean; motivo?: string } | null;
+  };
 }
 
 export function useCloseConversation() {
@@ -41,11 +51,18 @@ export function useCloseConversation() {
 
   return useMutation({
     mutationFn: async (args: CloseArgs) => {
-      const corpo: { expected_revision?: number; devolver_ao_automatico?: boolean } = {
+      const corpo: {
+        expected_revision?: number;
+        devolver_ao_automatico?: boolean;
+        registro?: CloseArgs["registro"];
+      } = {
         expected_revision: args.expected_revision,
       };
       if (args.devolver_ao_automatico !== undefined) {
         corpo.devolver_ao_automatico = args.devolver_ao_automatico;
+      }
+      if (args.registro !== undefined) {
+        corpo.registro = args.registro;
       }
       return apiClient.post<RespostaDeFechamento>(
         `/api/v1/conversations/${args.conversation_id}/close`,
@@ -60,6 +77,14 @@ export function useCloseConversation() {
     onSuccess: (resposta, args) => {
       qc.invalidateQueries({ queryKey: ["conversations"] });
       qc.invalidateQueries({ queryKey: ["conversation", args.conversation_id] });
+
+      // O registro pode ter recusado mesmo com a conversa fechada (a ordem é
+      // essa de propósito) — o aviso sai antes dos toasts da devolução, e as
+      // duas recusas podem conviver no mesmo fechamento.
+      const registro = resposta?.data?.registro;
+      if (registro && !registro.ok) {
+        toast.warning(fraseDeRecusaDoRegistro(registro.motivo, t));
+      }
 
       const devolucao = resposta?.data?.devolucao;
       if (!devolucao || devolucao.ok) return;
@@ -93,6 +118,29 @@ export function useCloseConversation() {
       );
     },
   });
+}
+
+/** Toast de recusa do registro: o texto é um só por motivo — cada um diz o que
+ *  a equipe pode fazer, porque o fechamento já aconteceu e não há o que refazer. */
+function fraseDeRecusaDoRegistro(motivo: string | undefined, t: (s: string) => string): string {
+  switch (motivo) {
+    case "demanda_mudou":
+      return t(
+        "Conversa encerrada, mas o atendimento tinha mudado bem na hora de gravar o registro. Abra o atendimento na ficha do contato e registre o desfecho por lá.",
+      );
+    case "demanda_ja_encerrada":
+      return t(
+        "Conversa encerrada. O atendimento já tinha sido encerrado — o registro não foi gravado por cima do que existe.",
+      );
+    case "sem_demanda":
+      return t(
+        "Conversa encerrada. Não havia atendimento aberto para receber o registro.",
+      );
+    default:
+      return t(
+        "Conversa encerrada, mas não consegui gravar o registro de atendimento. Registre o desfecho pela ficha do contato.",
+      );
+  }
 }
 
 /**

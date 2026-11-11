@@ -7674,6 +7674,7 @@ export type Database = {
       crm_tasks: {
         Row: {
           assigned_to: string | null;
+          company_id: string | null;
           contact_id: string | null;
           created_at: string;
           created_by: string | null;
@@ -7692,6 +7693,7 @@ export type Database = {
         ComputedFields: never;
         Insert: {
           assigned_to?: string | null;
+          company_id?: string | null;
           contact_id?: string | null;
           created_at?: string;
           created_by?: string | null;
@@ -7709,6 +7711,7 @@ export type Database = {
         };
         Update: {
           assigned_to?: string | null;
+          company_id?: string | null;
           contact_id?: string | null;
           created_at?: string;
           created_by?: string | null;
@@ -7725,6 +7728,13 @@ export type Database = {
           updated_at?: string;
         };
         Relationships: [
+          {
+            foreignKeyName: "crm_tasks_company_fk";
+            columns: ["organization_id", "company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["organization_id", "id"];
+          },
           {
             foreignKeyName: "crm_tasks_contact_id_fkey";
             columns: ["contact_id"];
@@ -7886,6 +7896,7 @@ export type Database = {
           aberta_em: string;
           agent_case_id: string | null;
           assunto: string | null;
+          company_id: string | null;
           contact_id: string;
           created_at: string;
           desfecho: string | null;
@@ -7901,6 +7912,7 @@ export type Database = {
           prazo_em: string | null;
           proximo_passo: string | null;
           proximo_passo_em: string | null;
+          resumo_encerramento: string | null;
           revision: number;
           updated_at: string;
         };
@@ -7909,6 +7921,7 @@ export type Database = {
           aberta_em?: string;
           agent_case_id?: string | null;
           assunto?: string | null;
+          company_id?: string | null;
           contact_id: string;
           created_at?: string;
           desfecho?: string | null;
@@ -7924,6 +7937,7 @@ export type Database = {
           prazo_em?: string | null;
           proximo_passo?: string | null;
           proximo_passo_em?: string | null;
+          resumo_encerramento?: string | null;
           revision?: number;
           updated_at?: string;
         };
@@ -7931,6 +7945,7 @@ export type Database = {
           aberta_em?: string;
           agent_case_id?: string | null;
           assunto?: string | null;
+          company_id?: string | null;
           contact_id?: string;
           created_at?: string;
           desfecho?: string | null;
@@ -7946,6 +7961,7 @@ export type Database = {
           prazo_em?: string | null;
           proximo_passo?: string | null;
           proximo_passo_em?: string | null;
+          resumo_encerramento?: string | null;
           revision?: number;
           updated_at?: string;
         };
@@ -7956,6 +7972,13 @@ export type Database = {
             isOneToOne: false;
             referencedRelation: "agent_cases";
             referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "demandas_company_fk";
+            columns: ["organization_id", "company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["organization_id", "id"];
           },
           {
             foreignKeyName: "demandas_contact_id_fkey";
@@ -10716,6 +10739,121 @@ export type Database = {
             isOneToOne: false;
             referencedRelation: "organizations";
             referencedColumns: ["id"];
+          },
+        ];
+      };
+      menu_de_entrada: {
+        Row: {
+          ativo: boolean;
+          channel_session_id: string;
+          created_at: string;
+          id: string;
+          organization_id: string;
+          pedir_cnpj: boolean;
+          setor_padrao_id: string | null;
+          textos: NonNullable<Json>;
+          updated_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          ativo?: boolean;
+          channel_session_id: string;
+          created_at?: string;
+          id?: string;
+          organization_id: string;
+          pedir_cnpj?: boolean;
+          setor_padrao_id?: string | null;
+          textos?: NonNullable<Json>;
+          updated_at?: string;
+        };
+        Update: {
+          ativo?: boolean;
+          channel_session_id?: string;
+          created_at?: string;
+          id?: string;
+          organization_id?: string;
+          pedir_cnpj?: boolean;
+          setor_padrao_id?: string | null;
+          textos?: NonNullable<Json>;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "menu_de_entrada_organization_id_channel_session_id_fkey";
+            columns: ["organization_id", "channel_session_id"];
+            isOneToOne: true;
+            referencedRelation: "channel_sessions";
+            referencedColumns: ["organization_id", "id"];
+          },
+          {
+            foreignKeyName: "menu_de_entrada_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "menu_de_entrada_setor_padrao_fk";
+            columns: ["organization_id", "setor_padrao_id"];
+            isOneToOne: false;
+            referencedRelation: "attendant_sectors";
+            referencedColumns: ["organization_id", "id"];
+          },
+        ];
+      };
+      menu_de_entrada_opcoes: {
+        Row: {
+          created_at: string;
+          id: string;
+          menu_id: string;
+          ordem: number;
+          organization_id: string;
+          rotulo: string;
+          sector_id: string;
+          updated_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          id?: string;
+          menu_id: string;
+          ordem: number;
+          organization_id: string;
+          rotulo: string;
+          sector_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          menu_id?: string;
+          ordem?: number;
+          organization_id?: string;
+          rotulo?: string;
+          sector_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "menu_de_entrada_opcoes_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "menu_de_entrada_opcoes_organization_id_menu_id_fkey";
+            columns: ["organization_id", "menu_id"];
+            isOneToOne: false;
+            referencedRelation: "menu_de_entrada";
+            referencedColumns: ["organization_id", "id"];
+          },
+          {
+            foreignKeyName: "menu_de_entrada_opcoes_organization_id_sector_id_fkey";
+            columns: ["organization_id", "sector_id"];
+            isOneToOne: false;
+            referencedRelation: "attendant_sectors";
+            referencedColumns: ["organization_id", "id"];
           },
         ];
       };
@@ -15664,11 +15802,14 @@ export type Database = {
           p_desfecho: string;
           p_expected: number;
           p_org: string;
+          p_resumo?: string;
+          p_titulo?: string;
         };
         Returns: {
           aberta_em: string;
           agent_case_id: string | null;
           assunto: string | null;
+          company_id: string | null;
           contact_id: string;
           created_at: string;
           desfecho: string | null;
@@ -15684,6 +15825,7 @@ export type Database = {
           prazo_em: string | null;
           proximo_passo: string | null;
           proximo_passo_em: string | null;
+          resumo_encerramento: string | null;
           revision: number;
           updated_at: string;
         };

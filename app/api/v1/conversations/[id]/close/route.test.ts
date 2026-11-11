@@ -254,3 +254,139 @@ describe("close — devolver ao fechar segue a regra de dono do botão", () => {
     expect(input).toEqual({ conversationId: CONVERSA, expectedAssignee: COLEGA });
   });
 });
+
+/**
+ * REGISTRO DE ATENDIMENTO NO FECHAMENTO (spec 2026-11-11 §5) — o gesto de fechar
+ * ganha título + conteúdo + desfecho, gravados na demanda atual por
+ * `fn_demanda_encerrar`. A ordem é a filosofia desta rota, já testada para a
+ * devolução: fechar é o gesto pedido e SEMANA; o registro, quando recusado
+ * (demanda sumiu, encerrou concorrente, CAS), viaja no corpo e não derruba o
+ * fechamento — a conversa fechada já escreveu em `proximo_passo` o lembrete de
+ * "registrar o desfecho", que fica visível e cobrável.
+ */
+const DEMANDA = "55555555-5555-4555-8555-555555555555";
+
+describe("close — registro de atendimento (9339)", () => {
+  type RpcCall = { nome: string; args: Record<string, unknown> };
+  let rpcs: RpcCall[];
+
+  function mocksComDemanda(demandaRow: Record<string, unknown> | null, encerrarErro?: { code: string }) {
+    rpcs = [];
+    vi.mocked(createClient).mockResolvedValue({
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({
+                data: { ...CONVERSA_FECHADA, current_demanda_id: demandaRow?.id ?? DEMANDA },
+                error: null,
+              }),
+            }),
+          }),
+        }),
+      }),
+      rpc: async () => ({ data: true, error: null }),
+    } as unknown as Awaited<ReturnType<typeof createClient>>);
+    vi.mocked(createAdminClient).mockReturnValue({
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => ({ maybeSingle: async () => ({ data: demandaRow, error: null }) }),
+          }),
+        }),
+      }),
+      rpc: async (nome: string, args: Record<string, unknown>) => {
+        rpcs.push({ nome, args });
+        if (nome === "fn_demanda_encerrar" && encerrarErro) return { data: null, error: encerrarErro };
+        return { data: CONVERSA_FECHADA, error: null };
+      },
+    } as unknown as ReturnType<typeof createAdminClient>);
+  }
+
+  const registro = { titulo: "Impressora sem responder", conteudo: "Reiniciado spooler; testado e validado.", desfecho: "resolvida" };
+
+  it("com registro e demanda aberta: fecha, ENCERRA a demanda com título e conteúdo, e o corpo traz registro ok", async () => {
+    mocksComDemanda({ id: DEMANDA, revision: 3, fechada_em: null });
+    const res = await chamar({ expected_revision: 7, registro });
+    const corpo = (await res.json()) as Resposta;
+
+    expect(res.status).toBe(200);
+    expect(corpo.data.registro).toEqual({ ok: true });
+    const nomes = rpcs.map((r) => r.nome);
+    expect(nomes).toContain("fn_demanda_encerrar");
+    // a demanda só é encerrada DEPOIS do fechamento — fechar é o gesto que trava tudo
+    expect(nomes.indexOf("fn_service_status")).toBeLessThan(nomes.indexOf("fn_demanda_encerrar"));
+    const encerrar = rpcs.find((r) => r.nome === "fn_demanda_encerrar")!;
+    expect(encerrar.args).toMatchObject({
+      p_org: ORG,
+      p_demanda: DEMANDA,
+      p_expected: 3,
+      p_desfecho: "resolvida",
+      p_actor: ATENDENTE,
+      p_titulo: registro.titulo,
+      p_resumo: registro.conteudo,
+    });
+  });
+
+  it("sem registro no corpo: nenhuma leitura de demanda, nenhum encerramento — resposta como sempre", async () => {
+    mocksComDemanda({ id: DEMANDA, revision: 3, fechada_em: null });
+    const res = await chamar({ expected_revision: 7 });
+    const corpo = (await res.json()) as Resposta;
+    expect(res.status).toBe(200);
+    expect(Object.keys(corpo.data)).not.toContain("registro");
+    expect(rpcs.map((r) => r.nome)).not.toContain("fn_demanda_encerrar");
+  });
+
+  it("conversa sem demanda atual: recusa nomeada viaja no corpo e o fechamento acontece", async () => {
+    mocksComDemanda(null);
+    const res = await chamar({ expected_revision: 7, registro });
+    const corpo = (await res.json()) as Resposta;
+    expect(res.status).toBe(200);
+    expect(corpo.data.registro).toEqual({ ok: false, motivo: "sem_demanda" });
+    expect(rpcs.map((r) => r.nome)).not.toContain("fn_demanda_encerrar");
+  });
+
+  it("demanda já encerrada (outro gesto ganhou o corrida): motivo demanda_ja_encerrada, fecha do mesmo jeito", async () => {
+    mocksComDemanda({ id: DEMANDA, revision: 4, fechada_em: "2026-11-11T10:00:00Z" });
+    const res = await chamar({ expected_revision: 7, registro });
+    const corpo = (await res.json()) as Resposta;
+    expect(res.status).toBe(200);
+    expect(corpo.data.registro).toEqual({ ok: false, motivo: "demanda_ja_encerrada" });
+  });
+
+  it("CAS da demanda estourou (PT409): registro viaja recusado, fechamento segue — o lembrete do banco fica visível", async () => {
+    mocksComDemanda({ id: DEMANDA, revision: 3, fechada_em: null }, { code: "42P01" });
+    rpcs = [];
+    vi.mocked(createAdminClient).mockReturnValue({
+      from: () => ({
+        select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { id: DEMANDA, revision: 3, fechada_em: null }, error: null }) }) }) }),
+      }),
+      rpc: async (nome: string) => {
+        rpcs.push({ nome, args: {} });
+        if (nome === "fn_demanda_encerrar") return { data: null, error: { code: "PT409", message: "demanda_stale" } };
+        return { data: CONVERSA_FECHADA, error: null };
+      },
+    } as unknown as ReturnType<typeof createAdminClient>);
+    const res = await chamar({ expected_revision: 7, registro });
+    const corpo = (await res.json()) as Resposta;
+    expect(res.status).toBe(200);
+    expect(corpo.data.registro).toEqual({ ok: false, motivo: "demanda_mudou" });
+  });
+
+  it("título vazio ou ausente: 422 ANTES de qualquer escrita", async () => {
+    mocksComDemanda({ id: DEMANDA, revision: 3, fechada_em: null });
+    const res = await chamar({ expected_revision: 7, registro: { titulo: "  ", desfecho: "resolvida" } });
+    expect(res.status).toBe(422);
+    expect(rpcs).toHaveLength(0);
+    const res2 = await chamar({ expected_revision: 7, registro: { desfecho: "resolvida" } });
+    expect(res2.status).toBe(422);
+  });
+
+  it("desfecho omitido no registro vale `resolvida` (o padrão da pergunta da tela)", async () => {
+    mocksComDemanda({ id: DEMANDA, revision: 3, fechada_em: null });
+    const res = await chamar({ expected_revision: 7, registro: { titulo: "Só o título" } });
+    expect(res.status).toBe(200);
+    const encerrar = rpcs.find((r) => r.nome === "fn_demanda_encerrar")!;
+    expect(encerrar.args).toMatchObject({ p_desfecho: "resolvida", p_titulo: "Só o título", p_resumo: null });
+  });
+});

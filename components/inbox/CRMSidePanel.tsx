@@ -3,6 +3,8 @@
 import { CartaoDaCarteira } from "@/components/contacts/CartaoDaCarteira";
 import { RoteirosDoContato } from "@/components/contacts/RoteirosDoContato";
 import { AcervoSearch } from "./AcervoSearch";
+import { DialogoVincularEmpresa } from "./DialogoVincularEmpresa";
+import { SeletorDeEmpresa } from "@/components/tasks/SeletorDeEmpresa";
 import { LeadEnrichment } from "./LeadEnrichment";
 import { AnuncioDoContato, type AnuncioDeOrigem, type AnuncioMaisRecente } from "./AnuncioDoContato";
 import { UltimasComprasDoContato } from "@/components/contacts/UltimasCompras";
@@ -25,6 +27,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { Tag, Receipt, Users, ArrowRight, CaretDoubleLeft, CaretDoubleRight } from "@/lib/ui/icons";
 import { apiClient } from "@/lib/api/client";
+// O vocabulário do desfecho é um só para as telas que leem demanda (spec §6):
+// source of truth em `lib/demandas/rotulos-do-desfecho.ts`.
+import { DESFECHO_LEGIVEL } from "@/lib/demandas/rotulos-do-desfecho";
 import { toast } from "sonner";
 import type { ConversationWithContact } from "@/hooks/inbox/useConversationsRealtime";
 import { activityLabel, actorLabel, actorShape } from "@/lib/leads/activity-vocabulary";
@@ -156,6 +161,8 @@ interface DemandaRow {
   proximo_passo: string | null;
   proximo_passo_em: string | null;
   prazo_em: string | null;
+  /** Empresa cliente do atendimento (spec §6) — o seletor da linha parte daqui. */
+  company_id: string | null;
 }
 
 interface DesfechoDraft {
@@ -196,11 +203,6 @@ function EncerrarDemanda({ draft, onAbrir, onAlterar, onFechar, onPronto }: {
     <Button size="sm" variant="ghost" type="button" disabled={draft.salvando} onClick={onFechar}>{t("Cancelar")}</Button>
   </form>;
 }
-
-const DESFECHO_LEGIVEL: Record<string, string> = {
-  resolvida: "Resolvida", convertida: "Convertida", nao_procede: "Não procede",
-  encerrada_pelo_cliente: "Encerrada pelo cliente", perdida: "Perdida", expirada_sem_resposta: "Expirada sem resposta",
-};
 
 /** Vocabulário de quem atende, não o do banco. */
 const ESTADO_LEGIVEL: Record<string, string> = {
@@ -832,6 +834,12 @@ export function CRMSidePanel({
 
   const [enrichment, setEnrichment] = useState<(ProspectEnrichment & { collected_at: string }) | null>(null);
   const [enrichmentError, setEnrichmentError] = useState(false);
+  // Empresa do contato (spec 2026-11-11 §6): lida do `crm-summary` pela MESMA
+  // função do vínculo do porteiro. Null = sem empresa — o card então oferece o
+  // vínculo por CNPJ a quem atende.
+  const [empresaResumo, setEmpresaResumo] = useState<{ id: string; nome: string; cnpj: string | null } | null>(
+    null,
+  );
   const [personalizacao, setPersonalizacao] =
     useState<PersonalizacaoProspeccao | null>(null);
   const [leads, setLeads] = useState<LeadRow[] | null>(null);
@@ -914,12 +922,14 @@ export function CRMSidePanel({
             historico?: Array<{ id: string; desfecho: string; fechada_em: string }>;
             anuncio_de_origem?: AnuncioDeOrigem | null;
             anuncio_mais_recente?: AnuncioMaisRecente | null;
+            empresa?: { id: string; nome: string; cnpj: string | null } | null;
           };
         }>(`/api/v1/contacts/${contactId}/crm-summary`);
         if (cancelled) return;
         setSummaryContactId(contactId);
         setEnrichment(r.data.enrichment ?? null);
         setEnrichmentError(r.data.enrichment_error ?? false);
+        setEmpresaResumo(r.data.empresa ?? null);
         setPersonalizacao(r.data.personalizacao ?? null);
         setLeads(r.data.leads);
         // A TROCA DE FUNIL cria um negócio que ESTE painel nunca viu, e o
@@ -1088,6 +1098,18 @@ export function CRMSidePanel({
           {contact?.phone_number && (
             <div className="text-xs text-muted-foreground">{phoneForDisplay(contact.phone_number)}</div>
           )}
+          {/* A EMPRESA POR TRÁS DO NÚMERO (spec 2026-11-11 §6): em suporte de TI,
+              "quem liga" é uma empresa, não só uma pessoa. Quando o número ainda
+              não tem empresa, quem atende vincula pelo CNPJ — um campo, sem CRUD. */}
+          {empresaResumo ? (
+            <div className="text-xs text-muted-foreground" data-testid="inbox-empresa-do-contato">
+              {t("Empresa")}: <span className="font-medium text-foreground">{empresaResumo.nome}</span>
+            </div>
+          ) : contactId && !readonly ? (
+            <div>
+              <DialogoVincularEmpresa contactId={contactId} onVinculada={recarregar} />
+            </div>
+          ) : null}
           {/*
             OS ATALHOS DO CARD (#3487), logo abaixo do telefone — que é o dado
             que eles usam. `tel:` aqui é o caso (a) da issue: um clique disca no
@@ -1244,6 +1266,26 @@ export function CRMSidePanel({
                       vazamento e tinha de sair da tela para resolver — peça que
                       só recebe é ilha pelo invariante 1. */}
                   {d.id === conversation.current_demanda_id && <Badge variant="outline">{t("Demanda vigente neste canal")}</Badge>}
+                  {/* Empresa do atendimento (spec §6): o mesmo seletor do
+                      formulário de tarefa, em tamanho de linha. Quem atende é
+                      quem sabe de quem é o pedido — e a ficha da empresa só
+                      conta esta história se o vínculo for feito AQUI, no
+                      atendimento, e não depois, em outra tela. */}
+                  {!readonly && podeCriarTarefa ? (
+                    <div className="mt-1.5" data-testid="demanda-seletor-empresa">
+                      <SeletorDeEmpresa
+                        value={d.company_id ?? null}
+                        onChange={async (companyId) => {
+                          try {
+                            await apiClient.patch(`/api/v1/demandas/${d.id}`, { company_id: companyId });
+                            recarregar();
+                          } catch {
+                            toast.error(t("Não foi possível vincular a empresa."));
+                          }
+                        }}
+                      />
+                    </div>
+                  ) : null}
                   {!readonly && <EncerrarDemanda
                     draft={desfechoDraft?.conversationId === conversation.id && desfechoDraft.contactId === contactId && desfechoDraft.demandaId === d.id ? desfechoDraft : null}
                     onAbrir={() => { if (contactId) setDesfechoDraft({ conversationId: conversation.id, contactId, demandaId: d.id, revision: d.revision, desfecho: "resolvida", salvando: false }); }}

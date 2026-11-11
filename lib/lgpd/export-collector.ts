@@ -577,6 +577,7 @@ export interface DemandaRow {
   agent_case_id: string | null;
   origem: string;
   assunto: string | null;
+  resumo_encerramento: string | null;
   estado: string;
   dono_kind: string;
   proximo_passo: string | null;
@@ -2381,7 +2382,7 @@ export async function collectExportData(args: CollectArgs): Promise<ExportPayloa
     const { data, error } = await admin
       .from("demandas")
       .select(
-        "id, agent_case_id, origem, assunto, estado, dono_kind, proximo_passo, desfecho, aberta_em, fechada_em",
+        "id, agent_case_id, origem, assunto, resumo_encerramento, estado, dono_kind, proximo_passo, desfecho, aberta_em, fechada_em",
       )
       .eq("organization_id", organizationId)
       .eq("contact_id", contactId)

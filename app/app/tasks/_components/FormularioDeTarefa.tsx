@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { SeletorDeEmpresa } from "@/components/tasks/SeletorDeEmpresa";
 import { useUser } from "@/hooks/auth/AuthProvider";
 import { useT } from "@/hooks/i18n/useT";
 import { useAssignableMembers } from "@/hooks/inbox/useAssignableMembers";
@@ -47,6 +48,12 @@ interface Props {
    * assunto que a originou, e volta para a lista de quem precisa cumpri-la.
    */
   demandaId?: string | null;
+  /**
+   * A empresa cliente com que a tarefa nova já nasce escolhida (spec §6).
+   * Ausente = o SELETOR começa vazio e a rota HERDA da demanda/contato — a
+   * herança só acontece quando ninguém escolheu nada.
+   */
+  companyId?: string | null;
   /**
    * Quem nasce como responsável numa tarefa NOVA. O dossiê do negócio passa o
    * próprio usuário: quem anota "ligar sexta" no card quase sempre é quem vai
@@ -84,6 +91,7 @@ export function FormularioDeTarefa({
   leadId,
   contactId,
   demandaId,
+  companyId,
   responsavelPadrao,
 }: Props) {
   const t = useT();
@@ -108,6 +116,12 @@ export function FormularioDeTarefa({
   const [situacao, setSituacao] = useState<SituacaoDaTarefa>(tarefa?.status ?? "pending");
   const responsavelInicial = (editando ? tarefa?.assigned_to : responsavelPadrao) ?? NINGUEM;
   const [responsavel, setResponsavel] = useState<string>(responsavelInicial);
+  // A empresa segue a mesma coreografia do responsável: estado inicial vem da
+  // tarefa (edição) ou da prop (criação), e o campo só VIAJA quando mudou —
+  // reenviar o que estava lá faria uma tarefa antiga ser recusada por um campo
+  // em que ninguém mexeu, e omitir na criação é o que pede a HERANÇA à rota.
+  const empresaInicial = (editando ? tarefa?.company_id : companyId) ?? null;
+  const [empresa, setEmpresa] = useState<string | null>(empresaInicial);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -143,6 +157,13 @@ export function FormularioDeTarefa({
         // edição do título por causa de um campo em que ninguém mexeu.
         ...(responsavel !== responsavelInicial || !editando
           ? { assigned_to: responsavel === NINGUEM ? null : responsavel }
+          : {}),
+        // Empresa (spec §6): na CRIAÇÃO sem escolha o campo nem vai — é a
+        // ausência que pede à rota a herança da demanda/contato. Escolheu,
+        // vale; desfez a escolha de uma tarefa antiga, `null` grava "sem
+        // empresa", e o seletor deixou de ser enfeite.
+        ...(empresa !== empresaInicial || (!editando && empresa !== null)
+          ? { company_id: empresa ?? null }
           : {}),
       });
       aoMudarAbertura(false);
@@ -272,6 +293,16 @@ export function FormularioDeTarefa({
                 ) : null}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* A empresa cliente (spec §6), logo DEPOIS do responsável: as duas
+              respostas que faltam num ticket de suporte são "de quem" e "com
+              quem ficou". O seletor sabe sumir quando o módulo B2B está
+              desligado — a organização sem cadastro de empresas não vê um
+              campo que nunca funcionaria. */}
+          <div className="space-y-1.5">
+            <Label>{t("Empresa")}</Label>
+            <SeletorDeEmpresa value={empresa} onChange={setEmpresa} disabled={salvando} />
           </div>
 
           {erro ? (

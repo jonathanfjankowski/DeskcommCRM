@@ -75704,6 +75704,119 @@ create trigger trg_contacts_fusao_e_anonimizacao_so_pelo_servidor_ao_criar
 revoke all on table public.storage_redaction_queue from authenticated;
 grant select on table public.storage_redaction_queue to authenticated;
 
+-- ---- registro de atendimento (migration 9339) ----
+-- manifest: demandas.resumo_encerramento + fn_demanda_encerrar com título/conteúdo (7 args, drop da 5-args para não criar overload) + trigger de anonimização do conteúdo
+-- Espelho da 9339. Spec: docs/superpowers/specs/2026-11-11-atendimento-suporte-menu-setores-design.md §5.
+-- O título reusa demandas.assunto (já redigido pela cascata e já no export); aqui só o conteúdo novo.
+
+alter table public.demandas add column if not exists resumo_encerramento text;
+
+comment on column public.demandas.resumo_encerramento is
+  'Conteúdo do registro de atendimento (migration 9339): o que foi conversado, escrito pelo atendente ao encerrar. O título é demandas.assunto. Dado pessoal quando aponta para um contato: a cascata LGPD e o trigger trg_redigir_demandas_ao_anonimizar o apagam na anonimização; desfecho/estado/datas são preservados (fato operacional).';
+
+drop function if exists public.fn_demanda_encerrar(uuid,uuid,bigint,text,uuid);
+
+create or replace function public.fn_demanda_encerrar(p_org uuid,p_demanda uuid,p_expected bigint,p_desfecho text,p_actor uuid,p_titulo text default null,p_resumo text default null)
+returns public.demandas language plpgsql security definer set search_path=public as $$
+declare d public.demandas; pre_contact uuid;
+begin
+ if p_desfecho not in ('resolvida','convertida','nao_procede','encerrada_pelo_cliente','perdida','expirada_sem_resposta') then
+  raise exception 'invalid_desfecho' using errcode='22023'; end if;
+ select * into d from public.demandas where id=p_demanda and organization_id=p_org;
+ if not found then raise exception 'demanda_not_found' using errcode='P0002'; end if;
+ pre_contact:=d.contact_id;
+ perform public.fn_service_lock(p_org,d.contact_id);
+ select * into d from public.demandas where id=p_demanda and organization_id=p_org for no key update;
+ if d.contact_id is distinct from pre_contact then raise exception 'service_contact_changed' using errcode='40001'; end if;
+ if d.revision<>p_expected or d.fechada_em is not null then raise exception 'demanda_stale' using errcode='PT409'; end if;
+ update public.demandas set revision=revision+1,desfecho=p_desfecho,fechada_em=clock_timestamp(),
+  encerrada_por=p_actor,estado=case when p_desfecho in ('resolvida','convertida') then 'resolvida' else 'encerrada' end,
+  proximo_passo=null,proximo_passo_em=null,
+  assunto=coalesce(p_titulo,assunto),resumo_encerramento=p_resumo,
+  updated_at=clock_timestamp()
+  where id=p_demanda and organization_id=p_org returning * into d;
+ insert into public.crm_lead_activities(organization_id,lead_id,contact_id,source_module,source_id,type,payload,performed_at,performed_by_user_id)
+ select p_org,l.id,d.contact_id,'crm',d.id,'demand_closed',jsonb_build_object('demanda_id',d.id,'desfecho',p_desfecho,'titulo',d.assunto),clock_timestamp(),p_actor
+ from public.crm_leads l where l.organization_id=p_org and l.contact_id=d.contact_id;
+ return d;
+end; $$;
+
+revoke execute on function public.fn_demanda_encerrar(uuid,uuid,bigint,text,uuid,text,text) from public,anon,authenticated;
+grant execute on function public.fn_demanda_encerrar(uuid,uuid,bigint,text,uuid,text,text) to service_role;
+
+create or replace function public.fn_redigir_demandas_do_contato_anonimizado()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  update public.demandas
+     set resumo_encerramento = null
+   where organization_id = new.organization_id
+     and contact_id = new.id;
+  return new;
+end;
+$$;
+
+revoke execute on function public.fn_redigir_demandas_do_contato_anonimizado() from public, anon, authenticated;
+grant  execute on function public.fn_redigir_demandas_do_contato_anonimizado() to service_role;
+
+drop trigger if exists trg_redigir_demandas_ao_anonimizar on public.contacts;
+create trigger trg_redigir_demandas_ao_anonimizar
+  after update of is_anonymized on public.contacts
+  for each row
+  when (new.is_anonymized is true and old.is_anonymized is distinct from true)
+  execute function public.fn_redigir_demandas_do_contato_anonimizado();
+
+notify pgrst, 'reload schema';
+
+-- ---- saudação na assumida (migration 9341) ----
+-- manifest: trigger em conversation_assignment_events emite conversation.atendente_assumiu (claim/transfer/routing/handoff com dono real); o envio é do handler, trigger nunca faz HTTP
+-- Espelho da 9341. Spec: docs/superpowers/specs/2026-11-11-atendimento-suporte-menu-setores-design.md §3.6.
+
+create or replace function public.fn_emit_saudacao_na_assumida()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  -- Release e revogação não são assumida; só os motivos que entregam a
+  -- conversa a uma pessoa.
+  if new.to_user_id is null or new.reason not in ('claim', 'transfer', 'routing', 'handoff') then
+    return new;
+  end if;
+  -- O fato de atribuição deve corresponder ao dono real, na MESMA organização
+  -- (guarda do trigger irmão fn_interromper_turnos_ao_assumir).
+  if not exists (select 1 from public.conversations c
+    where c.organization_id = new.organization_id and c.id = new.conversation_id
+      and c.assigned_to_user_id = new.to_user_id) then
+    return new;
+  end if;
+  insert into public.event_log (organization_id, event_type, entity_kind, entity_id, payload)
+  values (
+    new.organization_id,
+    'conversation.atendente_assumiu',
+    'conversation',
+    new.conversation_id,
+    jsonb_build_object(
+      'conversation_id', new.conversation_id,
+      'assignment_event_id', new.id,
+      'to_user_id', new.to_user_id,
+      'reason', new.reason
+    )
+  );
+  return new;
+end;
+$$;
+
+revoke execute on function public.fn_emit_saudacao_na_assumida() from public, anon, authenticated;
+grant  execute on function public.fn_emit_saudacao_na_assumida() to service_role;
+
+drop trigger if exists trg_saudacao_na_assumida on public.conversation_assignment_events;
+create trigger trg_saudacao_na_assumida
+  after insert on public.conversation_assignment_events
+  for each row
+  execute function public.fn_emit_saudacao_na_assumida();
+
+notify pgrst, 'reload schema';
 -- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----
 --
 -- ⚠️ DE PROPÓSITO, NENHUMA FUNÇÃO É CRIADA DEPOIS DESTE BLOCO. Apêndice que cria
@@ -80919,3 +81032,162 @@ begin
   end loop;
 end
 $fichas_absorvidas$;
+
+-- ---- menu de entrada (migration 9338) ----
+-- manifest: menu de entrada determinístico por número (config + opções com FK composta para setores e canal); authenticated só lê, escrita é da rota de settings (manager+)
+-- Espelho da 9338. Spec: docs/superpowers/specs/2026-11-11-atendimento-suporte-menu-setores-design.md.
+-- Sem linha de config, nada muda: o recurso é opcional por número.
+
+do $mig$
+begin
+  if not exists (
+    select 1 from pg_constraint
+     where conname = 'channel_sessions_organization_id_id_key'
+       and conrelid = 'public.channel_sessions'::regclass
+  ) then
+    alter table public.channel_sessions
+      add constraint channel_sessions_organization_id_id_key unique (organization_id, id);
+  end if;
+end;
+$mig$;
+
+create table if not exists public.menu_de_entrada (
+  id                 uuid primary key default gen_random_uuid(),
+  organization_id    uuid not null references public.organizations(id) on delete cascade,
+  channel_session_id uuid not null,
+  ativo              boolean not null default false,
+  pedir_cnpj         boolean not null default true,
+  textos             jsonb not null default '{}'::jsonb,
+  setor_padrao_id    uuid,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now(),
+  unique (organization_id, channel_session_id),
+  unique (organization_id, id),
+  foreign key (organization_id, channel_session_id)
+    references public.channel_sessions (organization_id, id) on delete cascade
+);
+
+do $mig$
+begin
+  if not exists (
+    select 1 from pg_constraint
+     where conname = 'menu_de_entrada_setor_padrao_fk'
+       and conrelid = 'public.menu_de_entrada'::regclass
+  ) then
+    alter table public.menu_de_entrada
+      add constraint menu_de_entrada_setor_padrao_fk
+      foreign key (organization_id, setor_padrao_id)
+      references public.attendant_sectors (organization_id, id)
+      on delete set null (setor_padrao_id);
+  end if;
+end;
+$mig$;
+
+create table if not exists public.menu_de_entrada_opcoes (
+  id              uuid primary key default gen_random_uuid(),
+  organization_id uuid not null,
+  menu_id         uuid not null,
+  sector_id       uuid not null,
+  rotulo          text not null check (char_length(btrim(rotulo)) between 1 and 60),
+  ordem           int not null check (ordem between 0 and 7),
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  unique (menu_id, sector_id),
+  foreign key (organization_id, menu_id)
+    references public.menu_de_entrada (organization_id, id) on delete cascade,
+  foreign key (organization_id, sector_id)
+    references public.attendant_sectors (organization_id, id) on delete cascade
+);
+
+create index if not exists menu_de_entrada_opcoes_menu_ordem
+  on public.menu_de_entrada_opcoes (organization_id, menu_id, ordem);
+
+alter table public.menu_de_entrada enable row level security;
+alter table public.menu_de_entrada_opcoes enable row level security;
+
+revoke all on public.menu_de_entrada, public.menu_de_entrada_opcoes
+  from public, anon, authenticated, service_role;
+grant select on public.menu_de_entrada, public.menu_de_entrada_opcoes to authenticated;
+grant select, insert, update, delete
+  on public.menu_de_entrada, public.menu_de_entrada_opcoes to service_role;
+
+drop policy if exists tenant_isolation_menu_de_entrada_select on public.menu_de_entrada;
+create policy tenant_isolation_menu_de_entrada_select on public.menu_de_entrada
+  for select to authenticated
+  using (organization_id in (select public.fn_user_org_ids()) or public.fn_is_platform_admin());
+
+drop policy if exists tenant_isolation_menu_de_entrada_opcoes_select on public.menu_de_entrada_opcoes;
+create policy tenant_isolation_menu_de_entrada_opcoes_select on public.menu_de_entrada_opcoes
+  for select to authenticated
+  using (organization_id in (select public.fn_user_org_ids()) or public.fn_is_platform_admin());
+
+comment on table public.menu_de_entrada is
+  'Menu de entrada determinístico por número (migration 9338). Um por channel_session; textos em jsonb com schema Zod em lib/atendimento/menu-de-entrada/schema.ts. Escrita só pela rota /api/v1/settings/menu-de-entrada (manager+). Sem linha, o fluxo de sempre.';
+comment on table public.menu_de_entrada_opcoes is
+  'Opções do menu de entrada (migration 9338): setor + rótulo + ordem. O número exibido é a posição ordenada (1-based), teto 8 na rota. Apagar o setor apaga a opção; o menu segue com as restantes.';
+
+notify pgrst, 'reload schema';
+
+-- ---- empresa em tarefas e demandas (migration 9340) ----
+-- manifest: empresa cliente (FK composta para companies) em crm_tasks e demandas; on delete set null (company_id) preserva o registro
+-- Espelho da 9340. Spec: docs/superpowers/specs/2026-11-11-atendimento-suporte-menu-setores-design.md §6.
+-- Colunas nuláveis, sem backfill: nenhum registro existente muda.
+
+do $mig$
+begin
+  if not exists (
+    select 1 from pg_constraint
+     where conname = 'companies_organization_id_id_key'
+       and conrelid = 'public.companies'::regclass
+  ) then
+    alter table public.companies
+      add constraint companies_organization_id_id_key unique (organization_id, id);
+  end if;
+end;
+$mig$;
+
+alter table public.crm_tasks add column if not exists company_id uuid;
+alter table public.demandas add column if not exists company_id uuid;
+
+do $mig$
+begin
+  if not exists (
+    select 1 from pg_constraint
+     where conname = 'crm_tasks_company_fk'
+       and conrelid = 'public.crm_tasks'::regclass
+  ) then
+    alter table public.crm_tasks
+      add constraint crm_tasks_company_fk
+      foreign key (organization_id, company_id)
+      references public.companies (organization_id, id)
+      on delete set null (company_id);
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+     where conname = 'demandas_company_fk'
+       and conrelid = 'public.demandas'::regclass
+  ) then
+    alter table public.demandas
+      add constraint demandas_company_fk
+      foreign key (organization_id, company_id)
+      references public.companies (organization_id, id)
+      on delete set null (company_id);
+  end if;
+end;
+$mig$;
+
+create index if not exists crm_tasks_org_company
+  on public.crm_tasks (organization_id, company_id)
+  where company_id is not null;
+
+create index if not exists demandas_org_company
+  on public.demandas (organization_id, company_id)
+  where company_id is not null;
+
+comment on column public.crm_tasks.company_id is
+  'Empresa cliente do ticket (migration 9340). FK composta com a organização; null = sem empresa. Herdada da demanda/contato na criação quando ausente; editável pelo seletor. Apagar a empresa anula o ponteiro e preserva a tarefa.';
+comment on column public.demandas.company_id is
+  'Empresa cliente do atendimento (migration 9340). FK composta com a organização; null = sem empresa. Herdada do contato (cadeia people) quando a demanda nasce de conversa; editável. Apagar a empresa anula o ponteiro e preserva o registro.';
+
+notify pgrst, 'reload schema';

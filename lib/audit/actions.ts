@@ -405,6 +405,10 @@ export const AUDIT_ACTIONS = [
   // a única sem rastro.
   "demanda.proximo_passo_definido",
   "demanda.encerrada",
+  // Vínculo de empresa (spec 2026-11-11 §6): de quem é o atendimento muda o
+  // que aparece na ficha da empresa — efeito que outra pessoa lê, precisa de
+  // rastro, inclusive quando o vínculo é desfeito (`null`).
+  "demanda.company_changed",
   "routing.worker_run",
   "attendant.heartbeat_swept",
   // A PRIMEIRA batida de presença de um atendente: é ela que insere a linha e
@@ -1304,6 +1308,17 @@ export const AUDIT_ACTIONS = [
   // regra consulta o modelo.
   "settings.automation_ai_decide_updated",
 
+  // A config de ATENDIMENTO da empresa (spec 2026-11-11): o interruptor
+  // `settings.atendimento.somente_humano`, o liga/desliga da saudação na
+  // assumida e o template dela. Gravados pela rota
+  // /api/v1/settings/atendimento (manager+). Sem esta linha, desligar a IA de
+  // uma empresa inteira ficaria sem rastro de quem fez e quando.
+  "settings.atendimento_changed",
+
+  // O menu de entrada por número (spec 2026-11-11): config e opções ligadas ou
+  // desligadas na tela Configurações › Atendimento › Menu de entrada.
+  "settings.menu_de_entrada_changed",
+
   // A entrada automática no funil (#3603): o interruptor
   // `organizations.settings.entrada_automatica_no_funil.ativa` foi ligado ou
   // desligado. A trilha responde "quem fez a conversa que o CRM abre passar a
@@ -1382,6 +1397,11 @@ export const AUDIT_ACTIONS = [
   // Marca permanente "sempre atendimento humano" (issue 2379): `ai_opt_out`
   // ligado na ficha do contato — a devolução (manual ou automática) não a desfaz.
   "contacts.always_human_marked",
+
+  // Vínculo empresa↔contato pelo CNPJ digitado na conversa (spec 2026-11-11
+  // §3.3): o atendente disse de qual cliente é aquele número. A linha da
+  // empresa pode ter NASCIDO agora — o metadata diz qual e se foi criação.
+  "contacts.company_linked_by_cnpj",
   // A marca foi removida: só limpa `ai_opt_out`; a conversa segue com a trava
   // de handoff de quem a pôs.
   "contacts.always_human_unmarked",

@@ -17,7 +17,7 @@ import {
   type PrioridadeDaTarefa,
   type Tarefa,
 } from "@/lib/tarefas/tipos";
-import { Check, Kanban, PencilSimple, Trash, UserCircle } from "@/lib/ui/icons";
+import { Check, Kanban, PencilSimple, Trash, UserCircle, Buildings } from "@/lib/ui/icons";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -148,6 +148,19 @@ function Linha({
               <Kanban size={12} aria-hidden className="shrink-0" />
               <span className="truncate">{tarefa.lead.title}</span>
             </Link>
+          ) : null}
+          {/* DE QUEM é a tarefa (spec §6): o nome da empresa cliente, quando ela
+              existe. Mesma régua do negócio — no dossiê não repete. */}
+          {mostrarNegocio && tarefa.company ? (
+            <span
+              className="flex min-w-0 max-w-[14rem] items-center gap-1 text-muted-foreground"
+              title={tarefa.company.trade_name ?? tarefa.company.legal_name ?? undefined}
+            >
+              <Buildings size={12} aria-hidden className="shrink-0" />
+              <span className="truncate">
+                {tarefa.company.trade_name ?? tarefa.company.legal_name ?? ""}
+              </span>
+            </span>
           ) : null}
         </div>
       </div>

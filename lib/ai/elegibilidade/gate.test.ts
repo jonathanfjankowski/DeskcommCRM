@@ -15,6 +15,8 @@ const DIA = 24 * 60 * 60 * 1000;
 const base: EstadoDeElegibilidade = {
   orgStatus: "active",
   canalDesativado: false,
+  // Modo suporte (spec 2026-11-11): false = o comportamento de sempre.
+  somenteHumano: false,
   modo: "open",
   forceHuman: false,
   contatoInterno: false,
@@ -86,6 +88,45 @@ describe("decidirElegibilidade — gate 'open' (comportamento de hoje)", () => {
     expect(montarEstadoDeElegibilidade({ ...cru, aiOptOut: true }).aiOptOut).toBe(true);
     expect(montarEstadoDeElegibilidade({ ...cru, aiOptOut: null }).aiOptOut).toBe(false);
     expect(montarEstadoDeElegibilidade({ ...cru, aiOptOut: "true" }).aiOptOut).toBe(false);
+  });
+
+  it("modo humano: org em 'somente humano' veta com motivo próprio, mesmo com gate aberto e tudo favorável", () => {
+    const d = decidirElegibilidade({ ...base, somenteHumano: true });
+    expect(d.permite).toBe(false);
+    expect(d.motivo).toBe("org_somente_humano");
+    expect(d.bloqueioPorAllowlist).toBe(false);
+  });
+
+  it("modo humano: org parada e canal desativado mantêm precedência; ele vem antes dos vetos de contato", () => {
+    expect(decidirElegibilidade({ ...base, somenteHumano: true, orgStatus: "suspended" }).motivo).toBe(
+      "org_nao_operante",
+    );
+    expect(decidirElegibilidade({ ...base, somenteHumano: true, canalDesativado: true }).motivo).toBe(
+      "canal_desativado",
+    );
+    expect(decidirElegibilidade({ ...base, somenteHumano: true, forceHuman: true }).motivo).toBe("org_somente_humano");
+  });
+
+  it("modo humano: montar lê settings.atendimento.somente_humano da org (true literal, lixo não liga)", () => {
+    const cru = {
+      aiGate: "open",
+      forceHuman: false,
+      aiOptOut: false,
+      assigneeKind: null,
+      metadataDaConversa: null,
+      botSilencedUntil: null,
+      aiAuthorizedAt: null,
+      orgStatus: "active",
+      agora: AGORA,
+      ttlMs: DIA,
+    };
+    expect(
+      montarEstadoDeElegibilidade({ ...cru, orgSettings: { atendimento: { somente_humano: true } } }).somenteHumano,
+    ).toBe(true);
+    expect(
+      montarEstadoDeElegibilidade({ ...cru, orgSettings: { atendimento: { somente_humano: "sim" } } }).somenteHumano,
+    ).toBe(false);
+    expect(montarEstadoDeElegibilidade({ ...cru }).somenteHumano).toBe(false);
   });
 
   it("conversa com dono humano bloqueia mesmo com gate aberto", () => {

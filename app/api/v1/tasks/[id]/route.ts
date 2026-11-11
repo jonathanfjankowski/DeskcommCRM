@@ -24,13 +24,14 @@ import { portaDaAplicacao } from "@/lib/db";
 import { createClient } from "@/lib/supabase/server";
 import { registraAtividadeDaTarefa } from "@/lib/tarefas/atividade";
 import { conferirDemanda } from "@/lib/tarefas/demanda";
+import { conferirEmpresa } from "@/lib/tarefas/empresa";
 import { conferirResponsavel } from "@/lib/tarefas/responsavel";
 import { PRIORIDADES_DA_TAREFA, SITUACOES_DA_TAREFA, type Tarefa } from "@/lib/tarefas/tipos";
 
 export const dynamic = "force-dynamic";
 
 const COLUNAS =
-  "id, organization_id, title, description, due_date, priority, status, lead_id, contact_id, demanda_id, assigned_to, created_by, created_at, updated_at, lead:crm_leads(id, title)";
+  "id, organization_id, title, description, due_date, priority, status, lead_id, contact_id, demanda_id, company_id, assigned_to, created_by, created_at, updated_at, lead:crm_leads(id, title), company:companies(id, trade_name, legal_name)";
 
 const edicaoSchema = z
   .object({
@@ -43,6 +44,8 @@ const edicaoSchema = z
     contact_id: z.string().uuid().nullable().optional(),
     /** Vincular (`<uuid>`) e desvincular (`null`) a demanda do atendimento (#2818). */
     demanda_id: z.string().uuid().nullable().optional(),
+    /** Vincular, trocar (`<uuid>`) ou desvincular (`null`) a empresa cliente (spec §6). */
+    company_id: z.string().uuid().nullable().optional(),
     assigned_to: z.string().uuid().nullable().optional(),
   })
   // PATCH vazio gravaria só o `updated_at` e devolveria 200: a tela diria
@@ -112,6 +115,23 @@ export async function PATCH(req: NextRequest, ctx: Contexto): Promise<Response> 
     }
     if (veredito === "encerrada") {
       return fail("state_conflict", t("Esta demanda já foi encerrada. Crie a tarefa numa demanda em andamento."), 409, {
+        requestId,
+      });
+    }
+  }
+
+  if (parsed.data.company_id) {
+    // A empresa precisa ser DA ORGANIZAÇÃO da sessão — a FK composta não
+    // confere isso sozinha, e a organização do update vem da linha carregada
+    // pelo `.eq("organization_id", authz.org.orgId)`, nunca do corpo. A régua
+    // está em `lib/tarefas/empresa.ts`; desvincular (`null`) não consulta.
+    const empresaDaOrganizacao = await conferirEmpresa(
+      supabase,
+      authz.org.orgId,
+      parsed.data.company_id,
+    );
+    if (!empresaDaOrganizacao) {
+      return fail("validation_failed", t("A empresa vinculada não existe."), 422, {
         requestId,
       });
     }

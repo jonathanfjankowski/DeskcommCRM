@@ -55,6 +55,13 @@ export interface NegocioDaTarefa {
   title: string;
 }
 
+/** A empresa cliente a que a tarefa pertence, embutida pela rota (spec §6). */
+export interface EmpresaDaTarefa {
+  id: string;
+  trade_name: string | null;
+  legal_name: string | null;
+}
+
 /** Uma linha de `crm_tasks`, como a API a devolve. */
 export interface Tarefa {
   id: string;
@@ -73,6 +80,12 @@ export interface Tarefa {
    * dentro do inbox voltar para a tela de quem precisa cumpri-la.
    */
   demanda_id: string | null;
+  /**
+   * A empresa cliente do ticket (spec §6). Nula = sem empresa — ou empresa de
+   * cadastro antigo. Herdada da demanda/contato na criação quando o formulário
+   * não escolheu nenhuma; editável pelo seletor.
+   */
+  company_id: string | null;
   assigned_to: string | null;
   created_by: string | null;
   created_at: string;
@@ -83,6 +96,12 @@ export interface Tarefa {
    * quando a tarefa é avulsa — ou quando o negócio não está mais visível.
    */
   lead?: NegocioDaTarefa | null;
+  /**
+   * Derivado (não é coluna): a empresa cliente de `company_id`, embutida pela
+   * rota para o card dizer DE QUEM é a tarefa (spec §6). Nula quando a tarefa
+   * não tem empresa — ou quando a empresa não está mais visível.
+   */
+  company?: EmpresaDaTarefa | null;
 }
 
 export interface NovaTarefa {
@@ -95,6 +114,12 @@ export interface NovaTarefa {
   contact_id?: string | null;
   /** A demanda do atendimento a que a tarefa fica presa (#2818). */
   demanda_id?: string | null;
+  /**
+   * A empresa cliente (spec §6). Ausente na criação = o servidor HERDA da
+   * demanda/contato; `null` explícito = "sem empresa", decisão de quem escolheu
+   * no seletor — a herança não passa por cima.
+   */
+  company_id?: string | null;
   assigned_to?: string | null;
 }
 

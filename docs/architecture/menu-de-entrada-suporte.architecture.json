@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Suporte com triagem por setor — do CNPJ digitado no WhatsApp ao registro na ficha",
+    "subtitle": "menu de entrada determinístico (sem IA), saudação de quem assume, fechamento com registro; spec docs/superpowers/specs/2026-11-11-atendimento-suporte-menu-setores-design.md",
+    "output": "menu-de-entrada-suporte.html",
+    "quality_profile": "standard"
+  },
+  "lanes": [
+    { "id": "config", "label": "O que a empresa configura" },
+    { "id": "entrada", "label": "A conversa que chega" },
+    { "id": "porteiro", "label": "O porteiro determinístico" },
+    { "id": "fila", "label": "Fila e atribuição (o que já existia)" },
+    { "id": "saida", "label": "Quem atende e fecha" },
+    { "id": "registro", "label": "O que fica registrado" }
+  ],
+  "mainPath": ["inbound", "handler", "fila-setor", "assign", "greeting"],
+  "nodes": [
+    { "id": "settings", "lane": "config", "col": 1, "type": "frontend", "label": "/app/settings/atendimento", "sublabel": "menu por número (textos, opções→setor, setor padrão), saudação da assumida e o modo só-humano" },
+    { "id": "menucfg", "lane": "config", "col": 1, "type": "datastore", "label": "menu_de_entrada + opcoes", "sublabel": "uma config por canal; opções com FK composta para attendant_sectors" },
+    { "id": "inbound", "lane": "entrada", "col": 2, "type": "event", "label": "message.received", "sublabel": "gatilho do banco quando a mensagem entra" },
+    { "id": "handler", "lane": "porteiro", "col": 3, "type": "backend", "label": "menuDeEntradaHandler", "sublabel": "dispatcher, ANTES do aiResponseHandler: estado em conversations.metadata.menu_de_entrada" },
+    { "id": "gate", "lane": "porteiro", "col": 3, "type": "backend", "label": "deveCederTurnoAoMenu", "sublabel": "gate no drain: conversa do menu não vira inbound_turn de LLM" },
+    { "id": "cnpj", "lane": "porteiro", "col": 3, "type": "backend", "label": "vincularEmpresaPorCnpj", "sublabel": "find-or-create + cadeia people + BrasilAPI; sem CRUD de empresa" },
+    { "id": "envio", "lane": "porteiro", "col": 4, "type": "backend", "label": "enviarTextoDeSistema", "sublabel": "porta única: janela do canal → restrição comercial → ritmo anti-ban → sendMessageHandler (chave determinística)" },
+    { "id": "fila-setor", "lane": "fila", "col": 5, "type": "event", "label": "pending + sector_id", "sublabel": "definirSetorDaConversa pede a distribuição (fn_request_channel_routing)" },
+    { "id": "routing", "lane": "fila", "col": 5, "type": "backend", "label": "routing-worker", "sublabel": "round_robin/load/manual por setor com horário e capacidade — já existia" },
+    { "id": "assign", "lane": "fila", "col": 6, "type": "datastore", "label": "fn_conversation_assign", "sublabel": "o ponto único de atribuição; insere conversation_assignment_events para todo motivo" },
+    { "id": "greeting", "lane": "saida", "col": 7, "type": "backend", "label": "saudacaoNaAssumidaHandler", "sublabel": "trigger → conversation.atendente_assumiu → template com [nome]/[empresa] pela mesma porta de envio" },
+    { "id": "som", "lane": "saida", "col": 7, "type": "frontend", "label": "BotaoSomDaFila", "sublabel": "toca na ENTRADA na fila: contagem canônica invalidada pelo realtime, por navegador" },
+    { "id": "close", "lane": "saida", "col": 8, "type": "frontend", "label": "diálogo Fechar", "sublabel": "título + conteúdo + desfecho quando há demanda atual" },
+    { "id": "demanda", "lane": "registro", "col": 9, "type": "datastore", "label": "demandas (assunto + resumo_encerramento)", "sublabel": "fechar → fn_service_status; encerrar → fn_demanda_encerrar com título/conteúdo" },
+    { "id": "ficha", "lane": "registro", "col": 9, "type": "frontend", "label": "ficha da empresa / do contato", "sublabel": "histórico de atendimentos e tarefas por company_id; cascata LGPD redige o conteúdo" }
+  ],
+  "edges": [
+    { "id": "e1", "from": "settings", "to": "menucfg", "label": "PUT manager+, auditado" },
+    { "id": "e2", "from": "inbound", "to": "handler", "label": "o porteiro lê a config do número" },
+    { "id": "e3", "from": "menucfg", "to": "handler", "label": "ativo + textos + opções" },
+    { "id": "e4", "from": "inbound", "to": "gate", "label": "antes de enfileirar inbound_turn" },
+    { "id": "e5", "from": "handler", "to": "envio", "label": "a mensagem renderizada dos textos da empresa" },
+    { "id": "e6", "from": "handler", "to": "cnpj", "label": "CNPJ válido → empresa nasce/reusa" },
+    { "id": "e7", "from": "handler", "to": "fila-setor", "label": "escolha ou setor padrão" },
+    { "id": "e8", "from": "fila-setor", "to": "routing", "label": "conversation.routing_requested" },
+    { "id": "e9", "from": "routing", "to": "assign", "label": "fn_channel_routing_claim termina em assign" },
+    { "id": "e10", "from": "assign", "to": "greeting", "label": "trigger → evento de assumida" },
+    { "id": "e11", "from": "greeting", "to": "envio", "label": "saudação pela mesma porta (chave = evento de atribuição)" },
+    { "id": "e12", "from": "fila-setor", "to": "som", "label": "contagem da fila subiu" },
+    { "id": "e13", "from": "close", "to": "demanda", "label": "encerra com título/conteúdo/desfecho" },
+    { "id": "e14", "from": "cnpj", "to": "ficha", "label": "company_id em tarefas e demandas" },
+    { "id": "e15", "from": "demanda", "to": "ficha", "label": "o histórico de quem atendeu" }
+  ]
+}

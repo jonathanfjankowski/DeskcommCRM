@@ -46,4 +46,9 @@ function descarregar(qc: QueryClient): void {
   agendadas.delete(qc);
   void qc.invalidateQueries({ queryKey: ["conversations"] });
   void qc.invalidateQueries({ queryKey: ["conversation"] });
+  // As CONTAGENS andam junto: o contador do menu e o som de entrada na fila
+  // (spec 2026-11-11 §8) leem a definição canônica de fila — que vive na rota
+  // de counts, lado servidor. Sem esta linha, o tempo-real atualizava a lista
+  // mas a contagem esperava o polling de 30s, e o alerta chegava mudo ou tarde.
+  void qc.invalidateQueries({ queryKey: ["conversation-counts"] });
 }

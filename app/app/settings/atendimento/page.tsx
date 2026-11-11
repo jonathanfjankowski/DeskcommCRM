@@ -21,21 +21,32 @@ import { redirect } from "next/navigation";
 import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
 import { DEFAULT_VISIBILITY_MODE, ROLE_RANK, type VisibilityMode } from "@/lib/auth/types";
 import { routingConfigSchema } from "@/lib/schemas";
+import {
+  atendimentoDeclarado,
+  regrasDeCliente,
+  telefoneDeFichaVaziaLigado,
+  nomeInformadoLigado,
+  duplicadosPorNomeLigado,
+} from "@/lib/schemas/settings";
 import { createClient } from "@/lib/supabase/server";
 import { loadChannelRoutingSettings } from "@/lib/routing/channel-policies";
 import { configAssinatura } from "@/lib/messaging/assinatura";
 import { podeAdministrarEmpresa } from "@/lib/auth/pode-administrar-empresa";
-import { regrasDeCliente, telefoneDeFichaVaziaLigado, nomeInformadoLigado, duplicadosPorNomeLigado } from "@/lib/schemas/settings";
 import { AssinaturaForm } from "./_assinatura-form";
 import { ClientePelaVenda } from "./_clientePelaVenda";
 import { ChannelRoutingForm } from "./_channels-form";
 import { AtendimentoForm } from "./_form";
+import { SaudacaoNaAssumida } from "./_saudacao";
+import { SomenteHumano } from "./_somente-humano";
 import { TelefoneDeFichaVazia } from "./_telefoneDeFichaVazia";
 import { NomeInformado } from "./_nomeInformado";
 import { DuplicadosPorNome } from "./_duplicadosPorNome";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { moduloLigado } from "@/lib/instalacao/modulos";
 import { createAdminClient } from "@/lib/supabase/admin";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +94,11 @@ export default async function AtendimentoSettingsPage() {
   // da varredura aplica (`duplicadosPorNomeLigado`): a tela não pode dizer
   // ligado o que a lista trata como desligado.
   const duplicadosPorNome = duplicadosPorNomeLigado({ crm: settings.crm });
+  // Spec 2026-11-11 §7/§4 — o bloco `atendimento` (só humano + saudação), lido
+  // pela MESMA régua do gate de elegibilidade e do handler da assumida
+  // (`atendimentoDeclarado`): a tela não pode mostrar ligado o que o servidor
+  // lê como desligado.
+  const atendimento = atendimentoDeclarado(settings);
 
   return (
     <div className="flex h-full flex-col gap-6 overflow-y-auto p-6">
@@ -102,6 +118,31 @@ export default async function AtendimentoSettingsPage() {
         initial={{ ...routing, visibility_mode: settings.visibility_mode ?? DEFAULT_VISIBILITY_MODE }}
         setoresLigado={await moduloLigado(createAdminClient(), "setores")}
       />
+      <SomenteHumano
+        valorInicial={atendimento.somente_humano}
+        podeMudar={podeAdministrarEmpresa(user, activeOrg)}
+        idioma={idioma}
+      />
+      <SaudacaoNaAssumida
+        inicial={atendimento.saudacao_na_assumida}
+        nomeOrganizacao={activeOrg.name}
+        podeMudar={podeAdministrarEmpresa(user, activeOrg)}
+        idioma={idioma}
+      />
+      <Card className="flex items-center justify-between gap-4 p-6" data-testid="cartao-menu-de-entrada">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-sm font-semibold">{traduzir("Menu de entrada por número", idioma)}</h2>
+          <p className="max-w-2xl text-xs text-muted-foreground">
+            {traduzir(
+              "A triagem que atende antes de qualquer IA: boas-vindas, pedido de CNPJ, opções por fila e setor padrão do WhatsApp.",
+              idioma,
+            )}
+          </p>
+        </div>
+        <Button asChild variant="outline" size="sm">
+          <Link href="/app/settings/atendimento/menu-de-entrada">{traduzir("Configurar menu", idioma)}</Link>
+        </Button>
+      </Card>
       <ChannelRoutingForm initial={channels} />
       <AssinaturaForm initial={assinaturaInicial} />
       <NomeInformado ligada={nomeInformadoLigado({ crm: settings.crm })} idioma={idioma} podeMudar={podeAdministrarEmpresa(user, activeOrg)} />

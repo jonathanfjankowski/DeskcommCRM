@@ -42,6 +42,7 @@ export function InterfaceEditor({
       >
         <option value="completa">{t("Completa")}</option>
         <option value="simplificada">{t("Simplificada")}</option>
+        <option value="suporte">{t("Suporte")}</option>
       </select>
       <p className="text-xs text-muted-foreground">{t("Trocar o perfil restaura sua seleção padrão. Perfil, segurança e acesso à equipe de quem administra continuam disponíveis.")}</p>
       {lerInterface(value).needsAdjustment && (

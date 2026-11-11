@@ -34,6 +34,8 @@ export interface FiltrosDeTarefa {
   assigned_to?: string;
   /** Só as tarefas de negócios deste funil. Ausente = de todos os funis (e as tarefas soltas também). */
   pipeline_id?: string;
+  /** Só as tarefas de UMA empresa cliente (spec §6). Ausente = de todas. */
+  company_id?: string;
   /**
    * Teto de linhas desta busca. Ausente = o teto da rota (500). O QUADRO pede
    * um número menor (`LIMITE_DO_QUADRO`): ele desenha todas as colunas de uma
@@ -79,6 +81,7 @@ export function useTasks(filtros: FiltrosDeTarefa = {}, opcoes: OpcoesDeTarefas 
   if (filtros.aberto) params.set("aberto", "true");
   if (filtros.assigned_to) params.set("assigned_to", filtros.assigned_to);
   if (filtros.pipeline_id) params.set("pipeline_id", filtros.pipeline_id);
+  if (filtros.company_id) params.set("company_id", filtros.company_id);
   if (filtros.limite) params.set("limite", String(filtros.limite));
   const qs = params.toString();
 

@@ -52,11 +52,23 @@ export default async function TarefasPage({
     .eq("is_archived", false)
     .order("position");
 
+  // As empresas da organização ativa, para o FILTRO de empresa (spec §6). Lidas
+  // aqui, pelo mesmo motivo dos funis: `GET /api/v1/companies` é módulo-gated e
+  // a tela abre para qualquer papel. O teto de 200 é do seletor, não do banco —
+  // beyond isso a busca por texto na lista da tela de Empresas já é o caminho.
+  const { data: empresas } = await supabase
+    .from("companies")
+    .select("id, trade_name, legal_name")
+    .eq("organization_id", activeOrg.orgId)
+    .order("trade_name", { ascending: true })
+    .limit(200);
+
   return (
     <TarefasClient
       podeEditar={podeEditar}
       minhasDeInicio={assigned_to === "me"}
       funis={(funis ?? []) as Array<{ id: string; name: string }>}
+      empresas={(empresas ?? []) as Array<{ id: string; trade_name: string | null; legal_name: string | null }>}
     />
   );
 }

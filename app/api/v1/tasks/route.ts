@@ -35,6 +35,7 @@ import { portaDaAplicacao } from "@/lib/db";
 import { createClient } from "@/lib/supabase/server";
 import { registraAtividadeDaTarefa } from "@/lib/tarefas/atividade";
 import { conferirDemanda } from "@/lib/tarefas/demanda";
+import { conferirEmpresa, empresaHerdada } from "@/lib/tarefas/empresa";
 import { conferirResponsavel } from "@/lib/tarefas/responsavel";
 import {
   PRIORIDADES_DA_TAREFA,
@@ -54,7 +55,7 @@ const LIMITE_MAXIMO = 500;
 
 /** As colunas que a tela lê. Explícitas para o `select *` não vazar coluna nova. */
 const COLUNAS =
-  "id, organization_id, title, description, due_date, priority, status, lead_id, contact_id, demanda_id, assigned_to, created_by, created_at, updated_at, lead:crm_leads(id, title)";
+  "id, organization_id, title, description, due_date, priority, status, lead_id, contact_id, demanda_id, company_id, assigned_to, created_by, created_at, updated_at, lead:crm_leads(id, title), company:companies(id, trade_name, legal_name)";
 
 /**
  * Com o filtro de funil o `lead` vira INNER JOIN: o PostgREST só filtra pela coluna de um
@@ -76,6 +77,10 @@ const criacaoSchema = z.object({
   // criada de dentro da conversa voltar para a tela de quem precisa cumpri-la.
   // Opcional como os outros dois — a tarefa avulsa é caso real.
   demanda_id: z.string().uuid().nullable().optional(),
+  // A empresa cliente do ticket (spec 2026-11-11 §6). AUSENTE na criação é
+  // pedido de HERANÇA (demanda → contato); `null` explícito é decisão de quem
+  // escolheu "sem empresa" no seletor, e a herança não passa por cima.
+  company_id: z.string().uuid().nullable().optional(),
   assigned_to: z.string().uuid().nullable().optional(),
 });
 
@@ -86,6 +91,8 @@ const listaSchema = z.object({
   contact_id: z.string().uuid().optional(),
   /** As tarefas de UMA demanda — a seção "Tarefas desta demanda" do inbox. */
   demanda_id: z.string().uuid().optional(),
+  /** As tarefas de UMA empresa cliente (spec §6). O filtro é pela coluna própria. */
+  company_id: z.string().uuid().optional(),
   due_from: z.string().datetime({ offset: true }).optional(),
   due_to: z.string().datetime({ offset: true }).optional(),
   /** "abertas" = o que ainda pede ação. É o default da tela. */
@@ -149,6 +156,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   if (filtros.lead_id) query = query.eq("lead_id", filtros.lead_id);
   if (filtros.contact_id) query = query.eq("contact_id", filtros.contact_id);
   if (filtros.demanda_id) query = query.eq("demanda_id", filtros.demanda_id);
+  if (filtros.company_id) query = query.eq("company_id", filtros.company_id);
   if (filtros.due_from) query = query.gte("due_date", filtros.due_from);
   if (filtros.due_to) query = query.lte("due_date", filtros.due_to);
   if (filtros.aberto === "true") query = query.in("status", [...SITUACOES_ABERTAS_DA_TAREFA]);
@@ -229,12 +237,41 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
   }
 
+  if (parsed.data.company_id) {
+    // A chave estrangeira de `company_id` é COMPOSTA com a organização, mas o
+    // body só traz a empresa: sem esta conferência, a empresa de outra
+    // organização gravaria com a organização da sessão colada no insert. A
+    // régua está em `lib/tarefas/empresa.ts` — a mesma postura do `demanda_id`.
+    const empresaDaOrganizacao = await conferirEmpresa(
+      supabase,
+      authz.org.orgId,
+      parsed.data.company_id,
+    );
+    if (!empresaDaOrganizacao) {
+      return fail("validation_failed", t("A empresa vinculada não existe."), 422, {
+        requestId,
+      });
+    }
+  }
+
   const { data, error } = await supabase
     .from("crm_tasks")
     .insert({
       ...parsed.data,
       organization_id: authz.org.orgId,
       created_by: authz.user.id,
+      // A HERANÇA (§6): quem não escolheu empresa ganha a que a conversa já
+      // sabia — a da demanda, senão a do contato pela cadeia `people`. `null`
+      // EXPLÍCITO no body é decisão e fica como está: nada herda por cima.
+      ...(parsed.data.company_id === undefined
+        ? {
+            company_id: await empresaHerdada(supabase, {
+              organizationId: authz.org.orgId,
+              demandaId: parsed.data.demanda_id,
+              contactId: parsed.data.contact_id,
+            }),
+          }
+        : {}),
     })
     .select(COLUNAS)
     .single();

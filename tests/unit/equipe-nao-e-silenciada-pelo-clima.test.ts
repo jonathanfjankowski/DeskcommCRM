@@ -86,6 +86,8 @@ function estado(extra: Partial<EstadoDeElegibilidade> = {}): EstadoDeElegibilida
   return {
     orgStatus: "active",
     canalDesativado: false,
+    // Spec 2026-11-11: modo humano desligado no estado base — cada caso muda só o que mede.
+    somenteHumano: false,
     modo: "open",
     forceHuman: false,
     contatoInterno: false,
