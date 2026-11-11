@@ -34,14 +34,28 @@ export interface FunilDoFiltro {
   name: string;
 }
 
+/**
+ * Uma empresa do filtro (spec §6). Vem da página pelo MESMO motivo do funil:
+ * `GET /api/v1/companies` é módulo-gated e exige leitura de catálogo — a tela
+ * de Tarefas abre para qualquer papel, e o filtro é um `select` simples da
+ * tabela, lido com o `organization_id` à mão.
+ */
+export interface EmpresaDoFiltro {
+  id: string;
+  trade_name: string | null;
+  legal_name: string | null;
+}
+
 export function TarefasClient({
   podeEditar,
   minhasDeInicio = false,
   funis = [],
+  empresas = [],
 }: {
   podeEditar: boolean;
   minhasDeInicio?: boolean;
   funis?: FunilDoFiltro[];
+  empresas?: EmpresaDoFiltro[];
 }) {
   const t = useT();
   const usuario = useUser();
@@ -53,6 +67,8 @@ export function TarefasClient({
   const { data: membros } = useAssignableMembers(podeEditar);
   // "todos" = sem filtro (a tela abre assim). Qualquer outro valor é o id de um funil.
   const [funil, setFunil] = useState<string>("todos");
+  // "todas" = sem filtro de empresa (spec §6), pela mesma régua do funil.
+  const [empresa, setEmpresa] = useState<string>("todas");
   const [emEdicao, setEmEdicao] = useState<Tarefa | null>(null);
   const [formAberto, setFormAberto] = useState(false);
   const [prazoSugerido, setPrazoSugerido] = useState<string | undefined>();
@@ -76,6 +92,7 @@ export function TarefasClient({
       ...(situacao === "aberto" ? { aberto: true } : { status: situacao }),
       assigned_to: responsavelDoFiltro(responsavel),
       pipeline_id: funil === "todos" ? undefined : funil,
+      company_id: empresa === "todas" ? undefined : empresa,
     },
     /*
      * No QUADRO esta busca fica parada. A visão em quadro faz a SUA própria
@@ -173,6 +190,25 @@ export function TarefasClient({
                 {funis.map((f) => (
                   <SelectItem key={f.id} value={f.id}>
                     {f.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          {/* Empresa (spec §6): sem empresa cadastrada não há o que filtrar —
+              a lista vem da página e é curta (200). Diferente do funil, um só
+              já vale: filtrar as tarefas DAQUELE cliente é a pergunta. */}
+          {empresas.length > 0 && (
+            <Select value={empresa} onValueChange={setEmpresa}>
+              <SelectTrigger aria-label={t("Empresa")} className="h-11 w-[168px] text-xs lg:h-9" data-testid="tarefas-filtro-empresa">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todas">{t("Todas as empresas")}</SelectItem>
+                {empresas.map((e) => (
+                  <SelectItem key={e.id} value={e.id}>
+                    {e.trade_name ?? e.legal_name ?? t("Empresa")}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -279,6 +315,7 @@ export function TarefasClient({
                 filtros={{
                   assigned_to: responsavelDoFiltro(responsavel),
                   pipeline_id: funil === "todos" ? undefined : funil,
+                  company_id: empresa === "todas" ? undefined : empresa,
                 }}
                 aoEditar={abrirEdicao}
               />
@@ -322,6 +359,10 @@ export function TarefasClient({
               ? undefined
               : responsavel
         }
+        // Filtrando por uma empresa, a tarefa nova nasce DELA — a mesma regra
+        // do responsável acima: a lista que está na tela filtra por ela, e uma
+        // tarefa sem empresa sumiria logo depois de salva.
+        companyId={empresa === "todas" ? undefined : empresa}
         aoSalvar={salvar}
       />
     </div>
