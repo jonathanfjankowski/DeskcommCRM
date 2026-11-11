@@ -39,6 +39,8 @@ import { avisoDePropostaNoWhatsAppHandler } from "@/lib/propostas/aviso-no-whats
 import { avisoDeAgendamentoNoWhatsAppHandler } from "@/lib/agenda/aviso-de-agendamento.handler";
 import { cobrancaSinalHandler } from "@/lib/cobranca/sinal.handler";
 import { reenvioDesaceleradoHandler } from "@/lib/messaging/reenvio-desacelerado.handler";
+import { saudacaoNaAssumidaHandler } from "@/lib/atendimento/saudacao-na-assumida";
+import { menuDeEntradaHandler } from "@/lib/atendimento/menu-de-entrada/handler";
 import { registerHandler } from "@/lib/event-log/dispatcher";
 
 let _registered = false;
@@ -56,6 +58,14 @@ export function ensureHandlersRegistered(): void {
   // precisa rodar antes do LLM. Depois da reatividade, para o match_reply dos
   // fluxos já vivos ler a mensagem primeiro.
   registerHandler(followupGatilhoRetornoHandler);
+  // O PORTEIRO antes do handler de IA (spec 2026-11-11): a ordem é protocolo —
+  // ele cala o bot da conversa (reivindicação `bot_silenced_until`) ANTES de o
+  // legado checar elegibilidade. O `aiResponseHandler` atende justamente as orgs
+  // sem agente publicado, que é onde o menu de suporte vai ligado; registrado
+  // depois dele, o IA falaria primeiro na mesma mensagem. Custo aceito e
+  // deliberado: quando o menu possui a conversa, os handlers seguintes esperam
+  // o pacing do envio (segundos), não o LLM.
+  registerHandler(menuDeEntradaHandler);
   registerHandler(aiResponseHandler);
   registerHandler(aiSentimentHandler);
   registerHandler(aiHandoffFromSentimentHandler);
@@ -114,6 +124,9 @@ export function ensureHandlersRegistered(): void {
   // A mensagem que o canal mandou desacelerar sai de novo, na mesma linha: rede
   // de terceiro, e consome um evento só dela.
   registerHandler(reenvioDesaceleradoHandler);
+  // A saudação de quem assume (spec 2026-11-11) consome o evento do trigger de
+  // atribuição — não `message.received` — e sai por rede como os avisos acima.
+  registerHandler(saudacaoNaAssumidaHandler);
   // Por último: reportar a venda ao anúncio é o consumidor mais externo do
   // fechamento — depende de rede de terceiro e não pode atrasar quem escreve
   // no banco. Falha dele nunca segura os handlers acima.
