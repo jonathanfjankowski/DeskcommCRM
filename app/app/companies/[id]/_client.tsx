@@ -15,12 +15,22 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/auth/AuthProvider";
+import { useTagDeIdioma } from "@/hooks/i18n/useLocaleDeData";
 import { useT } from "@/hooks/i18n/useT";
+import { DESFECHO_LEGIVEL } from "@/lib/demandas/rotulos-do-desfecho";
 import { ROLE_RANK } from "@/lib/auth/types";
 
 interface Props {
   id: string;
 }
+
+/** Situação da tarefa no vocabulário da tela de Tarefas (mesmas chaves do filtro). */
+const SITUACAO_LEGIVEL: Record<string, string> = {
+  pending: "Pendente",
+  in_progress: "Em andamento",
+  done: "Concluída",
+  cancelled: "Cancelada",
+};
 
 /**
  * Campos editáveis da empresa (issue #1937). O backend já aceitava PATCH desde
@@ -61,12 +71,20 @@ function formularioDaEmpresa(empresa: Record<string, unknown>): Formulario {
 
 export function CompanyDetailClient({ id }: Props) {
   const t = useT();
+  const tag = useTagDeIdioma();
   const router = useRouter();
   const { user, activeOrg } = useAuth();
   const [data, setData] = useState<{
     company: Record<string, unknown>;
     people: Array<Record<string, unknown>>;
     contacts: Array<Record<string, unknown>>;
+    /**
+     * Histórico (spec §6): `?? []` no consumo porque o card é aditivo — uma
+     * ficha lida contra backend antigo sem as duas listas continua abrindo o
+     * cadastro, só mostra as seções vazias.
+     */
+    demandas?: Array<Record<string, unknown>>;
+    tarefas?: Array<Record<string, unknown>>;
   } | null>(null);
   const [enriching, setEnriching] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -261,6 +279,69 @@ export function CompanyDetailClient({ id }: Props) {
                   </Link>
                   <div className="text-muted-foreground">
                     {(ct.display_name as string) || (ct.name as string) || ""}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        {/* ATENDIMENTOS (spec §6): a pergunta "o que esta empresa já pediu?"
+            resposta na própria ficha. Título = `assunto` (o registro de
+            encerramento reusa a coluna), desfecho traduzido pelo vocabulário
+            canônico e data — fechada quando houve, aberta desde quando. O
+            link leva ao contato, onde a conversa continua. */}
+        <Card className="space-y-2 p-4 md:col-span-2">
+          <h2 className="font-medium">{t("Atendimentos")}</h2>
+          {(data.demandas ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("Nenhum atendimento registrado.")}</p>
+          ) : (
+            <ul className="grid gap-2 sm:grid-cols-2 text-sm">
+              {(data.demandas ?? []).map((d) => {
+                const desfecho = d.desfecho as string | null;
+                const quando = (d.fechada_em ?? d.aberta_em) as string | null;
+                const contatoId = d.contact_id as string | null;
+                const titulo = (d.assunto as string) || "—";
+                return (
+                  <li key={d.id as string} className="rounded-md border px-3 py-2">
+                    <Link href={`/app/contacts/${contatoId}`} className="font-medium hover:underline">
+                      {titulo}
+                    </Link>
+                    <div className="text-muted-foreground">
+                      {desfecho ? t(DESFECHO_LEGIVEL[desfecho] ?? desfecho) : t("Em aberto")}
+                      {quando ? ` · ${new Date(quando).toLocaleDateString(tag)}` : ""}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Card>
+
+        {/* TAREFAS: o que ainda se deve a este cliente. O card é resumo — a
+            ação (editar, concluir, filtrar) mora na tela de Tarefas, para onde
+            a linha e o cabeçalho levam. */}
+        <Card className="space-y-2 p-4 md:col-span-2">
+          <div className="flex items-baseline justify-between gap-2">
+            <h2 className="font-medium">{t("Tarefas")}</h2>
+            <Link href="/app/tasks" className="text-xs text-muted-foreground hover:underline">
+              {t("Ver todas")}
+            </Link>
+          </div>
+          {(data.tarefas ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("Nenhuma tarefa para esta empresa.")}</p>
+          ) : (
+            <ul className="grid gap-2 sm:grid-cols-2 text-sm">
+              {(data.tarefas ?? []).map((tarefa) => (
+                <li key={tarefa.id as string} className="rounded-md border px-3 py-2">
+                  <Link href="/app/tasks" className="font-medium hover:underline">
+                    {(tarefa.title as string) || "—"}
+                  </Link>
+                  <div className="text-muted-foreground">
+                    {t(SITUACAO_LEGIVEL[tarefa.status as string] ?? (tarefa.status as string) ?? "")}
+                    {tarefa.due_date
+                      ? ` · ${new Date(tarefa.due_date as string).toLocaleDateString(tag)}`
+                      : ""}
                   </div>
                 </li>
               ))}

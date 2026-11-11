@@ -90,7 +90,37 @@ export async function getCompanyHandler(supabase: SB, ctx: HandlerCtx, id: strin
     contacts = cts ?? [];
   }
 
-  return { company: data, people: links ?? [], contacts };
+  // O HISTÓRICO da ficha (spec §6): os atendimentos e as tarefas desta empresa.
+  // `organization_id` do contexto + `company_id` da ficha, à mão nas duas mãos
+  // — o client pode ser service role, e a FK composta não confere organização
+  // sozinha. Teto 50: a ficha é painel; a lista inteira mora na tela própria.
+  // Falha de leitura devolve lista vazia (tolerante como `people`/`contacts`):
+  // não derruba a ficha do cadastro que já foi achado.
+  const { data: demandas } = await supabase
+    .from("demandas")
+    .select(
+      "id, assunto, resumo_encerramento, estado, desfecho, aberta_em, fechada_em, company_id, contact_id",
+    )
+    .eq("organization_id", ctx.organization_id)
+    .eq("company_id", id)
+    .order("aberta_em", { ascending: false })
+    .limit(50);
+
+  const { data: tarefas } = await supabase
+    .from("crm_tasks")
+    .select("id, title, status, priority, due_date, created_at")
+    .eq("organization_id", ctx.organization_id)
+    .eq("company_id", id)
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  return {
+    company: data,
+    people: links ?? [],
+    contacts,
+    demandas: demandas ?? [],
+    tarefas: tarefas ?? [],
+  };
 }
 
 export async function createCompanyHandler(

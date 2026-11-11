@@ -79,7 +79,7 @@ const ACTIVITY_COLS =
  * ausência dele é o próprio invariante 4, e é o que precisa saltar na tela.
  */
 const DEMANDA_COLS =
-  "id, revision, aberta_em, origem, estado, proximo_passo, proximo_passo_em, prazo_em";
+  "id, revision, aberta_em, origem, estado, proximo_passo, proximo_passo_em, prazo_em, company_id";
 
 export async function GET(
   _req: NextRequest,

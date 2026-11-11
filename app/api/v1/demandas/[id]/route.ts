@@ -35,6 +35,7 @@ import { audit } from "@/lib/audit";
 import { fail, ok } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { conferirEmpresa } from "@/lib/tarefas/empresa";
 import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
@@ -50,7 +51,17 @@ const encerrarSchema = z.object({
   expected_revision: z.number().int().positive(),
   desfecho: z.enum(["resolvida", "convertida", "nao_procede", "encerrada_pelo_cliente", "perdida", "expirada_sem_resposta"]),
 });
-const patchSchema = z.union([encerrarSchema, passoSchema]);
+
+// A TERCEIRA BOCA (spec §6): empresa cliente do atendimento. `null` desvincula
+// — tão efeito quanto vincular, e por isso audita igual. Objeto próprio com
+// chave OBRIGATÓRIA: nenhum dos outros ramos exige `company_id`, e um corpo
+// `{company_id}` não casa com `encerrar` (pede `action`) nem com o passo (pede
+// `proximo_passo`) — a union discrimina pelas chaves obrigatórias e não colide.
+const empresaSchema = z.object({
+  company_id: z.string().uuid().nullable(),
+});
+
+const patchSchema = z.union([encerrarSchema, passoSchema, empresaSchema]);
 
 export async function PATCH(
   req: NextRequest,
@@ -97,6 +108,46 @@ export async function PATCH(
       conflito ? 409 : error.code === "P0002" ? 404 : 500, { requestId });
     void audit({ action: "demanda.encerrada", actorUserId: user.id, organizationId: activeOrg.orgId,
       resourceType: "demanda", resourceId: id, requestId, metadata: { desfecho: parsed.data.desfecho } });
+    return ok(data, { requestId });
+  }
+
+  if ("company_id" in parsed.data) {
+    // A empresa precisa ser DA ORGANIZAÇÃO da sessão — a FK composta não
+    // confere isso sozinha (a régua em `lib/tarefas/empresa.ts`, a mesma da
+    // tarefa). Diferente do próximo passo, aqui uma demanda ENCERRADA também
+    // aceita o vínculo: corrigir de QUEM foi um atendimento é metadado do
+    // registro, não reabertura — a ficha da empresa é onde a história se lê.
+    if (parsed.data.company_id) {
+      const empresaDaOrganizacao = await conferirEmpresa(
+        admin,
+        activeOrg.orgId,
+        parsed.data.company_id,
+      );
+      if (!empresaDaOrganizacao) {
+        return fail("validation_failed", t("A empresa vinculada não existe."), 422, { requestId });
+      }
+    }
+    const { data, error } = await admin
+      .from("demandas")
+      .update({
+        company_id: parsed.data.company_id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .eq("organization_id", activeOrg.orgId)
+      .select("id, company_id, estado")
+      .maybeSingle();
+    if (error) return fail("internal_error", error.message, 500, { requestId });
+    if (!data) return fail("not_found", t("Demanda não encontrada."), 404, { requestId });
+    void audit({
+      action: "demanda.company_changed",
+      actorUserId: user.id,
+      organizationId: activeOrg.orgId,
+      resourceType: "demanda",
+      resourceId: id,
+      requestId,
+      metadata: { company_id: parsed.data.company_id },
+    });
     return ok(data, { requestId });
   }
 
