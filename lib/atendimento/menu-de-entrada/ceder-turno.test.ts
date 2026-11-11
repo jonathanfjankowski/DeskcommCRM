@@ -14,13 +14,16 @@ import { deveCederTurnoAoMenu } from "./ceder-turno";
  * fila, em aberto, não-grupo, contato não bloqueado). O `startable` espelha o
  * do handler; as duas metades divergirem é o turno IA+menu na mesma mensagem.
  */
+type QueryFn = (sql: string, params?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }>;
+
 function poolDe(linhas: Array<Record<string, unknown>> | "lança") {
-  return {
-    query: vi.fn(async () => {
-      if (linhas === "lança") throw new Error("banco fora do ar");
-      return { rows: linhas };
-    }),
-  };
+  const query = vi.fn<QueryFn>(async () => {
+    if (linhas === "lança") throw new Error("banco fora do ar");
+    return { rows: linhas };
+  });
+  // Pool.query tem sobrecargas demais para o mock caber direto; o cast é só da
+  // fronteira do teste — a função chamada é exatamente a que a implementação usa.
+  return { query } as unknown as { query: ReturnType<typeof vi.fn<QueryFn>> };
 }
 
 const PEDIDO = { organizationId: "org-1", conversationId: "conv-1" };
@@ -30,10 +33,11 @@ describe("deveCederTurnoAoMenu", () => {
     const pool = poolDe([{ cede: 1 }]);
     expect(await deveCederTurnoAoMenu(pool, PEDIDO)).toBe(true);
     expect(pool.query).toHaveBeenCalledTimes(1);
-    const [sql, params] = pool.query.mock.calls[0]!;
-    expect(String(sql)).toContain("menu_de_entrada");
-    expect(String(sql)).toContain("bot_silenced_until"); // a posse silenciada também vale
-    expect(params).toEqual(["org-1", "conv-1"]);
+    const chamada = pool.query.mock.calls[0];
+    expect(chamada).toBeDefined();
+    expect(String(chamada?.[0])).toContain("menu_de_entrada");
+    expect(String(chamada?.[0])).toContain("bot_silenced_until"); // a posse silenciada também vale
+    expect(chamada?.[1]).toEqual(["org-1", "conv-1"]);
   });
 
   it("sem posse (consulta vazia): não cede", async () => {
