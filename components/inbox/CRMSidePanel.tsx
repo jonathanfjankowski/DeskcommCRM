@@ -3,6 +3,7 @@
 import { CartaoDaCarteira } from "@/components/contacts/CartaoDaCarteira";
 import { RoteirosDoContato } from "@/components/contacts/RoteirosDoContato";
 import { AcervoSearch } from "./AcervoSearch";
+import { DialogoVincularEmpresa } from "./DialogoVincularEmpresa";
 import { LeadEnrichment } from "./LeadEnrichment";
 import { AnuncioDoContato, type AnuncioDeOrigem, type AnuncioMaisRecente } from "./AnuncioDoContato";
 import { UltimasComprasDoContato } from "@/components/contacts/UltimasCompras";
@@ -832,6 +833,12 @@ export function CRMSidePanel({
 
   const [enrichment, setEnrichment] = useState<(ProspectEnrichment & { collected_at: string }) | null>(null);
   const [enrichmentError, setEnrichmentError] = useState(false);
+  // Empresa do contato (spec 2026-11-11 §6): lida do `crm-summary` pela MESMA
+  // função do vínculo do porteiro. Null = sem empresa — o card então oferece o
+  // vínculo por CNPJ a quem atende.
+  const [empresaResumo, setEmpresaResumo] = useState<{ id: string; nome: string; cnpj: string | null } | null>(
+    null,
+  );
   const [personalizacao, setPersonalizacao] =
     useState<PersonalizacaoProspeccao | null>(null);
   const [leads, setLeads] = useState<LeadRow[] | null>(null);
@@ -914,12 +921,14 @@ export function CRMSidePanel({
             historico?: Array<{ id: string; desfecho: string; fechada_em: string }>;
             anuncio_de_origem?: AnuncioDeOrigem | null;
             anuncio_mais_recente?: AnuncioMaisRecente | null;
+            empresa?: { id: string; nome: string; cnpj: string | null } | null;
           };
         }>(`/api/v1/contacts/${contactId}/crm-summary`);
         if (cancelled) return;
         setSummaryContactId(contactId);
         setEnrichment(r.data.enrichment ?? null);
         setEnrichmentError(r.data.enrichment_error ?? false);
+        setEmpresaResumo(r.data.empresa ?? null);
         setPersonalizacao(r.data.personalizacao ?? null);
         setLeads(r.data.leads);
         // A TROCA DE FUNIL cria um negócio que ESTE painel nunca viu, e o
@@ -1088,6 +1097,18 @@ export function CRMSidePanel({
           {contact?.phone_number && (
             <div className="text-xs text-muted-foreground">{phoneForDisplay(contact.phone_number)}</div>
           )}
+          {/* A EMPRESA POR TRÁS DO NÚMERO (spec 2026-11-11 §6): em suporte de TI,
+              "quem liga" é uma empresa, não só uma pessoa. Quando o número ainda
+              não tem empresa, quem atende vincula pelo CNPJ — um campo, sem CRUD. */}
+          {empresaResumo ? (
+            <div className="text-xs text-muted-foreground" data-testid="inbox-empresa-do-contato">
+              {t("Empresa")}: <span className="font-medium text-foreground">{empresaResumo.nome}</span>
+            </div>
+          ) : contactId && !readonly ? (
+            <div>
+              <DialogoVincularEmpresa contactId={contactId} onVinculada={recarregar} />
+            </div>
+          ) : null}
           {/*
             OS ATALHOS DO CARD (#3487), logo abaixo do telefone — que é o dado
             que eles usam. `tel:` aqui é o caso (a) da issue: um clique disca no

@@ -1971,6 +1971,13 @@ export const DICIONARIO: Traducoes = {
   "Desfecho registrado.": { es: "Resultado registrado." },
   "Não foi possível encerrar. Cancele esta edição e abra novamente para revisar o desfecho.": { es: "No se pudo cerrar. Cancela esta edición y vuelve a abrirla para revisar el resultado." },
   "Desfecho da demanda": { es: "Resultado del caso" },
+  // Vínculo empresa↔número no inbox (spec 2026-11-11 §6).
+  "Vincular empresa por CNPJ": { es: "Vincular empresa por NIF (CNPJ)" },
+  "A empresa nasce do documento: se o CNPJ já é cliente, o cadastro existente é reusado.": { es: "La empresa nace del documento: si el CNPJ ya es cliente, se reutiliza el registro existente." },
+  "CNPJ": { es: "CNPJ" },
+  "Empresa vinculada.": { es: "Empresa vinculada." },
+  "Não foi possível vincular a empresa.": { es: "No fue posible vincular la empresa." },
+  "Vincular": { es: "Vincular" },
   // Registro de atendimento ao fechar (spec 2026-11-11 §5).
   "Registrar o atendimento": { es: "Registrar la atenci\u00f3n" },
   "Ex.: Impressora sem responder": { es: "Ej.: Impresora sin respuesta" },

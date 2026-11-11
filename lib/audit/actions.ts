@@ -1389,6 +1389,11 @@ export const AUDIT_ACTIONS = [
   // Marca permanente "sempre atendimento humano" (issue 2379): `ai_opt_out`
   // ligado na ficha do contato — a devolução (manual ou automática) não a desfaz.
   "contacts.always_human_marked",
+
+  // Vínculo empresa↔contato pelo CNPJ digitado na conversa (spec 2026-11-11
+  // §3.3): o atendente disse de qual cliente é aquele número. A linha da
+  // empresa pode ter NASCIDO agora — o metadata diz qual e se foi criação.
+  "contacts.company_linked_by_cnpj",
   // A marca foi removida: só limpa `ai_opt_out`; a conversa segue com a trava
   // de handoff de quem a pôs.
   "contacts.always_human_unmarked",

@@ -39,6 +39,7 @@ import { atalhosDoFunil } from "@/lib/leads/atalhos-do-card";
 import { camposDoFunil, camposPorEscopo, settingsDoEmbed } from "@/lib/leads/campos-do-funil";
 import { motivosDoFunil } from "@/lib/leads/motivos-de-perda-do-funil";
 import { createClient } from "@/lib/supabase/server";
+import { empresaDoContato } from "@/lib/atendimento/menu-de-entrada/empresa-por-cnpj";
 import { nomesDosAtendentes } from "@/lib/users/nome-do-atendente";
 
 export const dynamic = "force-dynamic";
@@ -258,9 +259,18 @@ export async function GET(
     linhas.map((a) => a.performed_by_user_id ?? null),
   );
 
+  // A empresa do contato (cadeia people → company_people → companies), lida
+  // pela MESMA função do vínculo do porteiro — um segundo caminho para "de qual
+  // cliente é este número" divergiria na primeira semana (spec 2026-11-11 §6).
+  const empresa = await empresaDoContato(supabase as unknown as Parameters<typeof empresaDoContato>[0], {
+    organizationId: contactScope.organization_id,
+    contactId,
+  });
+
   return ok(
     {
       ...enrichment,
+      empresa,
       leads: leadsResolvidos.map((row) => comCamposDoFunil(row as Record<string, unknown>)),
       orders: orders.data ?? [],
       activities: linhas.map((a) => ({
