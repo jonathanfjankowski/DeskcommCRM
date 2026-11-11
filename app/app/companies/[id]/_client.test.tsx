@@ -116,7 +116,7 @@ describe("ficha da empresa — atendimentos e tarefas", () => {
   });
 
   it("empresa sem histórico diz que não há — sem tabela fantasma", async () => {
-    vi.mocked(fetch).mockImplementation(async (url: string) => {
+    vi.mocked(fetch).mockImplementation(async (url: string | Request | URL) => {
       if (String(url).includes(`/api/v1/companies/${EMPRESA}`)) {
         return new Response(
           JSON.stringify({
