@@ -40,6 +40,7 @@ import { midiaDerivavelPendente } from './midia-derivavel';
 import { haQuemAtendaASessao } from '@/lib/ai/agents/quem-atende-a-sessao';
 import { decidirElegibilidadeDaConversa } from '@/lib/ai/elegibilidade/consulta-pg';
 import { deveCederTurnoAoRetorno } from '@/lib/followup/ceder-turno-ao-retorno';
+import { deveCederTurnoAoMenu } from '@/lib/atendimento/menu-de-entrada/ceder-turno';
 import { grupoLiberaIa } from '@/lib/grupos/ia-no-grupo';
 import { ehOperante } from '@/lib/organizacao/operante';
 
@@ -413,6 +414,17 @@ async function processEvent(
     log.info('drain: turno cedido ao follow-up de retorno — inbound_turn pulado', {
       event_id: event.id,
       contact_id: p.contact_id,
+    });
+    return 'processado';
+  }
+
+  // PORTEIRO (spec 2026-11-11): conversa possuída pelo menu de entrada não
+  // vira turno de LLM — quem responde é o porteiro, e a fila humana é o
+  // destino. Fail-aberto igual ao irmão: consulta falha = turno segue.
+  if (await deveCederTurnoAoMenu(pool, { organizationId: event.organization_id, conversationId: p.conversation_id })) {
+    log.info('drain: turno cedido ao menu de entrada — inbound_turn pulado', {
+      event_id: event.id,
+      conversation_id: p.conversation_id,
     });
     return 'processado';
   }
