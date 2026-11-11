@@ -131,6 +131,14 @@ export function ConversationHeader({
    * conversa anterior não deve ver a escolha já virada na seguinte).
    */
   const [devolverAoFechar, setDevolverAoFechar] = useState(true);
+  // ─── Registro do atendimento ao fechar (spec 2026-11-11 §5) ───────────────
+  // Título + conteúdo + desfecho gravados na DEMANDA atual da conversa. A
+  // pergunta só aparece quando há demanda aberta: sem ela não existe onde
+  // gravar, e perguntar à toa treinaria a equipe para ignorar o campo.
+  const temDemandaAberta = Boolean(conversation.current_demanda_id);
+  const [registroTitulo, setRegistroTitulo] = useState("");
+  const [registroConteudo, setRegistroConteudo] = useState("");
+  const [registroDesfecho, setRegistroDesfecho] = useState("resolvida");
   const [confirmArquivarOpen, setConfirmArquivarOpen] = useState(false);
   const [confirmPessoalOpen, setConfirmPessoalOpen] = useState(false);
   // O diálogo do convite é do CABEÇALHO, não do item do menu (#3003): um
@@ -600,6 +608,9 @@ export function ConversationHeader({
             onClick={() => {
               // Padrão marcado a cada abertura: a escolha é DESTA conversa.
               setDevolverAoFechar(true);
+              setRegistroTitulo("");
+              setRegistroConteudo("");
+              setRegistroDesfecho("resolvida");
               setConfirmFecharOpen(true);
             }}
           >
@@ -970,9 +981,63 @@ export function ConversationHeader({
               </label>
             </div>
           ) : null}
+          {/* O REGISTRO DO ATENDIMENTO (spec 2026-11-11 §5): o banco já escrevia
+              "Revisar atendimento e registrar o desfecho" como próximo passo ao
+              fechar — faltava a pergunta na tela. Título identifica o atendimento
+              no histórico da empresa/contato; conteúdo conta o que foi conversado. */}
+          {temDemandaAberta ? (
+            <div className="space-y-3" data-testid="registro-ao-fechar">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="registro-titulo">
+                  {t("Registrar o atendimento")}
+                </label>
+                <input
+                  id="registro-titulo"
+                  data-testid="registro-titulo"
+                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  placeholder={t("Ex.: Impressora sem responder")}
+                  value={registroTitulo}
+                  maxLength={200}
+                  onChange={(e) => setRegistroTitulo(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground" htmlFor="registro-conteudo">
+                  {t("O que foi conversado (opcional)")}
+                </label>
+                <textarea
+                  id="registro-conteudo"
+                  data-testid="registro-conteudo"
+                  className="min-h-[64px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  placeholder={t("Problema relatado, o que foi feito e o combinado com o cliente.")}
+                  value={registroConteudo}
+                  maxLength={5000}
+                  onChange={(e) => setRegistroConteudo(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground" htmlFor="registro-desfecho">
+                  {t("Desfecho")}
+                </label>
+                <select
+                  id="registro-desfecho"
+                  data-testid="registro-desfecho"
+                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={registroDesfecho}
+                  onChange={(e) => setRegistroDesfecho(e.target.value)}
+                >
+                  <option value="resolvida">{t("Resolvida")}</option>
+                  <option value="nao_procede">{t("Não procede")}</option>
+                  <option value="encerrada_pelo_cliente">{t("Encerrada pelo cliente")}</option>
+                  <option value="perdida">{t("Perdida")}</option>
+                </select>
+              </div>
+            </div>
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel>{t("Cancelar")}</AlertDialogCancel>
             <AlertDialogAction
+              disabled={temDemandaAberta && registroTitulo.trim().length === 0}
               onClick={() => {
                 // A chave só entra no corpo quando a escolha existe: sem contato
                 // travado a tela não pergunta nada, e o fechamento é o de sempre.
@@ -980,12 +1045,20 @@ export function ConversationHeader({
                   conversation_id: string;
                   expected_revision?: number;
                   devolver_ao_automatico?: boolean;
+                  registro?: { titulo: string; conteudo?: string; desfecho?: string };
                 } = {
                   conversation_id: conversation.id,
                   expected_revision: conversation.service_revision,
                 };
                 if (contatoTravadoComEquipe) {
                   escolha.devolver_ao_automatico = devolverAoFechar;
+                }
+                if (temDemandaAberta && registroTitulo.trim().length > 0) {
+                  escolha.registro = {
+                    titulo: registroTitulo.trim(),
+                    ...(registroConteudo.trim() ? { conteudo: registroConteudo.trim() } : {}),
+                    desfecho: registroDesfecho,
+                  };
                 }
                 close.mutate(escolha);
               }}
