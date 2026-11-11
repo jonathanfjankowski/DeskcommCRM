@@ -80919,3 +80919,98 @@ begin
   end loop;
 end
 $fichas_absorvidas$;
+
+-- ---- menu de entrada (migration 9338) ----
+-- manifest: menu de entrada determinístico por número (config + opções com FK composta para setores e canal); authenticated só lê, escrita é da rota de settings (manager+)
+-- Espelho da 9338. Spec: docs/superpowers/specs/2026-11-11-atendimento-suporte-menu-setores-design.md.
+-- Sem linha de config, nada muda: o recurso é opcional por número.
+
+do $mig$
+begin
+  if not exists (
+    select 1 from pg_constraint
+     where conname = 'channel_sessions_organization_id_id_key'
+       and conrelid = 'public.channel_sessions'::regclass
+  ) then
+    alter table public.channel_sessions
+      add constraint channel_sessions_organization_id_id_key unique (organization_id, id);
+  end if;
+end;
+$mig$;
+
+create table if not exists public.menu_de_entrada (
+  id                 uuid primary key default gen_random_uuid(),
+  organization_id    uuid not null references public.organizations(id) on delete cascade,
+  channel_session_id uuid not null,
+  ativo              boolean not null default false,
+  pedir_cnpj         boolean not null default true,
+  textos             jsonb not null default '{}'::jsonb,
+  setor_padrao_id    uuid,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now(),
+  unique (organization_id, channel_session_id),
+  unique (organization_id, id),
+  foreign key (organization_id, channel_session_id)
+    references public.channel_sessions (organization_id, id) on delete cascade
+);
+
+do $mig$
+begin
+  if not exists (
+    select 1 from pg_constraint
+     where conname = 'menu_de_entrada_setor_padrao_fk'
+       and conrelid = 'public.menu_de_entrada'::regclass
+  ) then
+    alter table public.menu_de_entrada
+      add constraint menu_de_entrada_setor_padrao_fk
+      foreign key (organization_id, setor_padrao_id)
+      references public.attendant_sectors (organization_id, id)
+      on delete set null (setor_padrao_id);
+  end if;
+end;
+$mig$;
+
+create table if not exists public.menu_de_entrada_opcoes (
+  id              uuid primary key default gen_random_uuid(),
+  organization_id uuid not null,
+  menu_id         uuid not null,
+  sector_id       uuid not null,
+  rotulo          text not null check (char_length(btrim(rotulo)) between 1 and 60),
+  ordem           int not null check (ordem between 0 and 7),
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  unique (menu_id, sector_id),
+  foreign key (organization_id, menu_id)
+    references public.menu_de_entrada (organization_id, id) on delete cascade,
+  foreign key (organization_id, sector_id)
+    references public.attendant_sectors (organization_id, id) on delete cascade
+);
+
+create index if not exists menu_de_entrada_opcoes_menu_ordem
+  on public.menu_de_entrada_opcoes (organization_id, menu_id, ordem);
+
+alter table public.menu_de_entrada enable row level security;
+alter table public.menu_de_entrada_opcoes enable row level security;
+
+revoke all on public.menu_de_entrada, public.menu_de_entrada_opcoes
+  from public, anon, authenticated, service_role;
+grant select on public.menu_de_entrada, public.menu_de_entrada_opcoes to authenticated;
+grant select, insert, update, delete
+  on public.menu_de_entrada, public.menu_de_entrada_opcoes to service_role;
+
+drop policy if exists tenant_isolation_menu_de_entrada_select on public.menu_de_entrada;
+create policy tenant_isolation_menu_de_entrada_select on public.menu_de_entrada
+  for select to authenticated
+  using (organization_id in (select public.fn_user_org_ids()) or public.fn_is_platform_admin());
+
+drop policy if exists tenant_isolation_menu_de_entrada_opcoes_select on public.menu_de_entrada_opcoes;
+create policy tenant_isolation_menu_de_entrada_opcoes_select on public.menu_de_entrada_opcoes
+  for select to authenticated
+  using (organization_id in (select public.fn_user_org_ids()) or public.fn_is_platform_admin());
+
+comment on table public.menu_de_entrada is
+  'Menu de entrada determinístico por número (migration 9338). Um por channel_session; textos em jsonb com schema Zod em lib/atendimento/menu-de-entrada/schema.ts. Escrita só pela rota /api/v1/settings/menu-de-entrada (manager+). Sem linha, o fluxo de sempre.';
+comment on table public.menu_de_entrada_opcoes is
+  'Opções do menu de entrada (migration 9338): setor + rótulo + ordem. O número exibido é a posição ordenada (1-based), teto 8 na rota. Apagar o setor apaga a opção; o menu segue com as restantes.';
+
+notify pgrst, 'reload schema';
