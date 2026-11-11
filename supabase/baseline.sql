@@ -81145,3 +81145,50 @@ comment on column public.demandas.company_id is
   'Empresa cliente do atendimento (migration 9340). FK composta com a organização; null = sem empresa. Herdada do contato (cadeia people) quando a demanda nasce de conversa; editável. Apagar a empresa anula o ponteiro e preserva o registro.';
 
 notify pgrst, 'reload schema';
+
+-- ---- saudação na assumida (migration 9341) ----
+-- manifest: trigger em conversation_assignment_events emite conversation.atendente_assumiu (claim/transfer/routing/handoff com dono real); o envio é do handler, trigger nunca faz HTTP
+-- Espelho da 9341. Spec: docs/superpowers/specs/2026-11-11-atendimento-suporte-menu-setores-design.md §3.6.
+
+create or replace function public.fn_emit_saudacao_na_assumida()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  -- Release e revogação não são assumida; só os motivos que entregam a
+  -- conversa a uma pessoa.
+  if new.to_user_id is null or new.reason not in ('claim', 'transfer', 'routing', 'handoff') then
+    return new;
+  end if;
+  -- O fato de atribuição deve corresponder ao dono real, na MESMA organização
+  -- (guarda do trigger irmão fn_interromper_turnos_ao_assumir).
+  if not exists (select 1 from public.conversations c
+    where c.organization_id = new.organization_id and c.id = new.conversation_id
+      and c.assigned_to_user_id = new.to_user_id) then
+    return new;
+  end if;
+  insert into public.event_log (organization_id, event_type, entity_kind, entity_id, payload)
+  values (
+    new.organization_id,
+    'conversation.atendente_assumiu',
+    'conversation',
+    new.conversation_id,
+    jsonb_build_object(
+      'conversation_id', new.conversation_id,
+      'assignment_event_id', new.id,
+      'to_user_id', new.to_user_id,
+      'reason', new.reason
+    )
+  );
+  return new;
+end;
+$$;
+
+revoke execute on function public.fn_emit_saudacao_na_assumida() from public, anon, authenticated;
+grant  execute on function public.fn_emit_saudacao_na_assumida() to service_role;
+
+drop trigger if exists trg_saudacao_na_assumida on public.conversation_assignment_events;
+create trigger trg_saudacao_na_assumida
+  after insert on public.conversation_assignment_events
+  for each row
+  execute function public.fn_emit_saudacao_na_assumida();
+
+notify pgrst, 'reload schema';
