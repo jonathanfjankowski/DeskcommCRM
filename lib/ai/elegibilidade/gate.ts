@@ -46,6 +46,7 @@ import { ehOperante } from "@/lib/organizacao/operante";
 import { tagsDaEquipeDaOrg, tagsInternasDaOrg } from "@/lib/schemas/settings";
 
 import { donoHumanoVetaIA, lerModoIaComDono } from "./ia-com-dono";
+import { atendimentoDeclarado } from "@/lib/schemas/settings";
 
 /** Valores aceitos em `channel_sessions.metadata.ai_gate`. */
 export const AI_GATE_MODES = ["open", "allowlist"] as const;
@@ -73,6 +74,14 @@ export interface EstadoDeElegibilidade {
    * Veto que vale SEMPRE (mesmo com o gate aberto): desativado nunca atende.
    */
   canalDesativado: boolean;
+  /**
+   * `organizations.settings.atendimento.somente_humano` (spec 2026-11-11):
+   * a org atende 100% com pessoas — a IA não responde nenhuma conversa dela.
+   * Veto de ORGANIZAÇÃO, com precedência sobre os vetos de contato/conversa
+   * mas não sobre org parada e canal desligado. Obrigatório de propósito,
+   * igual `orgStatus`: montador que esquecer a chave não compila.
+   */
+  somenteHumano: boolean;
   /** `channel_sessions.metadata.ai_gate` já normalizado. */
   modo: AiGateMode;
   /** `contacts.force_human` — a trava irrevogável pelo agente (regra dura 2). */
@@ -128,6 +137,7 @@ export interface EstadoDeElegibilidade {
 export type MotivoDeElegibilidade =
   | "org_nao_operante"
   | "canal_desativado"
+  | "org_somente_humano"
   | "gate_aberto"
   | "force_human"
   | "ai_opt_out"
@@ -180,6 +190,12 @@ export function decidirElegibilidade(e: EstadoDeElegibilidade): DecisaoDeElegibi
   }
   if (e.canalDesativado) {
     return { permite: false, motivo: "canal_desativado", bloqueioPorAllowlist: false };
+  }
+  // A org disse "aqui atende gente" (spec 2026-11-11): veto de organização,
+  // antes dos de contato — o motivo conta a história certa a quem investiga
+  // por que o robô ficou mudo.
+  if (e.somenteHumano) {
+    return { permite: false, motivo: "org_somente_humano", bloqueioPorAllowlist: false };
   }
   if (e.forceHuman) {
     return { permite: false, motivo: "force_human", bloqueioPorAllowlist: false };
@@ -302,6 +318,11 @@ export function montarEstadoDeElegibilidade(raw: {
   return {
     orgStatus: raw.orgStatus ?? null,
     canalDesativado: raw.canalDesativado === true,
+    // O modo humano vem das settings da org — os dois transports já
+    // selecionam `organizations.settings` (orgSettings), então o transporte
+    // novo que esquecer de passar as settings cai no `false` defensivo, e o
+    // teste do bloco cobre a leitura.
+    somenteHumano: atendimentoDeclarado(raw.orgSettings).somente_humano,
     modo,
     forceHuman: raw.forceHuman === true,
     contatoInterno: ehContatoInterno(raw.contactTags, tagsInternasDaOrg(raw.orgSettings)),

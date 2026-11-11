@@ -1304,6 +1304,13 @@ export const AUDIT_ACTIONS = [
   // regra consulta o modelo.
   "settings.automation_ai_decide_updated",
 
+  // A config de ATENDIMENTO da empresa (spec 2026-11-11): o interruptor
+  // `settings.atendimento.somente_humano`, o liga/desliga da saudação na
+  // assumida e o template dela. Gravados pela rota
+  // /api/v1/settings/atendimento (manager+). Sem esta linha, desligar a IA de
+  // uma empresa inteira ficaria sem rastro de quem fez e quando.
+  "settings.atendimento_changed",
+
   // A entrada automática no funil (#3603): o interruptor
   // `organizations.settings.entrada_automatica_no_funil.ativa` foi ligado ou
   // desligado. A trilha responde "quem fez a conversa que o CRM abre passar a
