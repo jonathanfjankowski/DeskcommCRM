@@ -405,6 +405,10 @@ export const AUDIT_ACTIONS = [
   // a única sem rastro.
   "demanda.proximo_passo_definido",
   "demanda.encerrada",
+  // Vínculo de empresa (spec 2026-11-11 §6): de quem é o atendimento muda o
+  // que aparece na ficha da empresa — efeito que outra pessoa lê, precisa de
+  // rastro, inclusive quando o vínculo é desfeito (`null`).
+  "demanda.company_changed",
   "routing.worker_run",
   "attendant.heartbeat_swept",
   // A PRIMEIRA batida de presença de um atendente: é ela que insere a linha e
@@ -1310,6 +1314,10 @@ export const AUDIT_ACTIONS = [
   // /api/v1/settings/atendimento (manager+). Sem esta linha, desligar a IA de
   // uma empresa inteira ficaria sem rastro de quem fez e quando.
   "settings.atendimento_changed",
+
+  // O menu de entrada por número (spec 2026-11-11): config e opções ligadas ou
+  // desligadas na tela Configurações › Atendimento › Menu de entrada.
+  "settings.menu_de_entrada_changed",
 
   // A entrada automática no funil (#3603): o interruptor
   // `organizations.settings.entrada_automatica_no_funil.ativa` foi ligado ou

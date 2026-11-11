@@ -4431,3 +4431,27 @@ O retorno usa os consumidores existentes: `mcp.tool_called` na auditoria e
 impedimentos no resultado da prévia ajudam o operador a revisar as escolhas em
 Capacidades e a configuração do servidor externo. A próxima execução relê essa
 configuração; não há novo subsistema, tela, rota ou autorização de escrita.
+
+## J70 — Suporte com triagem por setor: menu de CNPJ, fila humana e registro ao fechar `[P0]` (2026-11-11)
+
+Jornada da spec `docs/superpowers/specs/2026-11-11-atendimento-suporte-menu-setores-design.md`,
+que liga a instalação de suporte de TI (mesa de ajuda, sem CRM de vendas):
+
+1. **Configurar** (manager): `/app/settings/atendimento` → Menu de entrada → ligar por número,
+   editar textos/opções (setores vêm de Equipe › Setores); saudação da assumida e modo só-humano
+   nos cards irmãos; preset `Suporte` em Configurações › Empresa › Menu lateral esconde o funil.
+2. **Cliente chega**: "oi" → boas-vindas pede CNPJ → empresa nasce do documento (BrasilAPI, sem
+   CRUD) → menu numerado → "1" → confirmação da fila; conversa fica `pending` + bot silenciado
+   na fila do setor; nenhuma chamada de modelo no caminho.
+3. **Plantão**: sino do Inbox toca na ENTRADA na fila (por navegador); atendente assume
+   (claim/roteamento) → saudação automática com `[nome]` real; transferência repete com o novo nome.
+4. **Fechar**: diálogo pede título + conteúdo + desfecho quando há demanda atual → registro fica na
+   ficha da empresa/contato (também com as tarefas da empresa); sem demanda, fecha como sempre.
+
+Medido nesta entrega: unit (máquina de estados, parser, render, vínculo CNPJ, rota do vínculo,
+close com registro, gate da fila, handler da saudação, sino) + invariantes `test:db`
+(menu-de-entrada-rls 8/8, registro-de-atendimento-lgpd 6/6, empresa-em-tarefas-e-demandas 4/4,
+saudacao-na-assumida-evento 5/5) + cercas (varredura, i18n es, navegação, mapas).
+Ainda não medidos (porta de aceite para o merge): spec Playwright da jornada completa com WAHA
+simulado, prova visual em ambiente fresco estilo VPS com evidência em `evidence/`, e o
+`pnpm test:e2e` do CI. Ficam declarados no corpo do PR.

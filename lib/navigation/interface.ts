@@ -19,7 +19,7 @@ const ids = NAV_CATALOG.map((d) => d.href);
  */
 export const interfaceSettingsSchema = z
   .object({
-    preset: z.enum(["completa", "simplificada"]),
+    preset: z.enum(["completa", "simplificada", "suporte"]),
     destinos: z
       .array(z.enum(ids as [NavDestinationId, ...NavDestinationId[]]))
       .min(1)
@@ -58,6 +58,22 @@ const SIMPLIFICADA: readonly NavDestinationId[] = [
   "/app/contacts",
   "/app/tasks",
   "/app/connections",
+];
+/**
+ * A mesa de suporte (spec 2026-11-11 §7): Inbox, Tarefas, Contatos, Empresas,
+ * Conexões e Configurações › Atendimento. Esconde funil/kanban/leads/IA/análise
+ * — apresentação, nunca autorização: o papel continua decidindo `canSee` por
+ * cima, e `settings/atendimento` (manager+) simplesmente não aparece para
+ * agente. Empresas é porta do módulo `crm_b2b`, então vale a mesma exceção da
+ * lista do produto em `destinosDaInterface`: módulo ligado acende a porta.
+ */
+const SUPORTE: readonly NavDestinationId[] = [
+  "/app/inbox",
+  "/app/tasks",
+  "/app/contacts",
+  "/app/companies",
+  "/app/connections",
+  "/app/settings/atendimento",
 ];
 /** Portas pessoais e recuperação administrativa não são removíveis. Atualização
  * e administração de plataforma têm consumidores próprios com seus gates atuais.
@@ -163,6 +179,13 @@ export function lerInterface(raw: unknown): {
 export function camposDeCompraDaInterface(raw: unknown): string[] {
   return lerInterface(raw).settings.compras_campos ?? [];
 }
+/** A lista do PRODUTO por trás de cada preset restrito. `completa` não tem lista. */
+function listaDoPreset(preset: InterfaceSettings["preset"]): readonly NavDestinationId[] | undefined {
+  if (preset === "simplificada") return SIMPLIFICADA;
+  if (preset === "suporte") return SUPORTE;
+  return undefined;
+}
+
 export function destinosDaInterface(
   raw: unknown,
   platform: boolean,
@@ -172,8 +195,7 @@ export function destinosDaInterface(
 ): NavMetadata[] {
   const { settings } = lerInterface(raw);
   const allowed = permitidos(platform, role, modulos, capacidades);
-  const chosen =
-    settings.destinos ?? (settings.preset === "simplificada" ? SIMPLIFICADA : undefined);
+  const chosen = settings.destinos ?? listaDoPreset(settings.preset);
   /**
    * As DUAS origens de `chosen` não têm a mesma autoridade, e tratá-las igual
    * escondia a porta de todo módulo que a instalação ligasse depois.
@@ -227,12 +249,13 @@ export function homeDaInterface(raw: unknown, platform: boolean, role: Role | nu
 /**
  * O conjunto de portas que uma escolha REALMENTE significa.
  *
- * `destinos` e `preset: simplificada` são duas formas de dizer a mesma coisa —
- * uma lista explícita e um punhado fixo. Tratar as duas como conjuntos é o que
- * permite combinar escolhas sem uma tabela de casos.
+ * `destinos`, `preset: simplificada` e `preset: suporte` são formas de dizer a
+ * mesma coisa — uma lista explícita e um punhado fixo do produto. Tratar as
+ * formas como conjuntos é o que permite combinar escolhas sem uma tabela de
+ * casos.
  */
 function conjuntoEscolhido(s: InterfaceSettings): readonly NavDestinationId[] | undefined {
-  return s.destinos ?? (s.preset === "simplificada" ? SIMPLIFICADA : undefined);
+  return s.destinos ?? listaDoPreset(s.preset);
 }
 
 /** Portas essenciais que o catálogo conhece — o que sobra quando não há interseção. */
@@ -306,9 +329,29 @@ export function combinarInterfaces(daEmpresa: unknown, doVinculo: unknown): Inte
    *
    * Então: quando NENHUM dos lados escreveu lista à mão, o preset atravessa inteiro. Basta um lado
    * ter lista explícita para o resultado voltar a ser lista — aí existe decisão humana a respeitar.
+   *
+   * Com DOIS presets restritos possíveis (`simplificada` e `suporte`), a regra é a mesma da
+   * interseção: preset igual dos dois lados atravessa como preset; presets DIFERENTES estreitam
+   * um ao outro por lista explícita — nenhum dos dois abre porta que o outro fechou.
    */
   const soPreset = sEmpresa.destinos === undefined && sVinculo.destinos === undefined;
-  if (soPreset) return { preset: "simplificada", ...comCompras, ...daOrganizacao };
+  if (soPreset) {
+    const restrição = [sEmpresa.preset, sVinculo.preset].filter((p) => p !== "completa");
+    if (restrição.every((p) => p === restrição[0])) {
+      return {
+        preset: (restrição[0] ?? "simplificada") as InterfaceSettings["preset"],
+        ...comCompras,
+        ...daOrganizacao,
+      };
+    }
+    const comuns = (empresa ?? []).filter((id) => (vinculo ?? []).includes(id));
+    return {
+      preset: "completa",
+      destinos: [...(comuns.length > 0 ? comuns : SO_O_ESSENCIAL)],
+      ...comCompras,
+      ...daOrganizacao,
+    };
+  }
 
   const soUm = empresa ?? vinculo;
   if (!empresa || !vinculo) return { preset: "completa", destinos: [...(soUm as readonly NavDestinationId[])], ...comCompras, ...daOrganizacao };

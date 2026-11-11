@@ -125,7 +125,9 @@ export function TeamInvitesClient({ canManage }: Props) {
                         ? t("Personalizada")
                         : inv.interface_settings?.preset === "simplificada"
                           ? t("Simplificada")
-                          : t("Completa")}
+                          : inv.interface_settings?.preset === "suporte"
+                            ? t("Suporte")
+                            : t("Completa")}
                     </TableCell>
                     <TableCell className="max-md:p-0">
                       <Badge variant={BADGE_VARIANT[inv.status]}>{STATUS_LABEL[inv.status]}</Badge>

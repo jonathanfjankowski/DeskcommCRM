@@ -137,7 +137,9 @@ export function TeamMembersClient({ currentUserId, canManage }: Props) {
                         ? t("Personalizada")
                         : m.interface_settings?.preset === "simplificada"
                           ? t("Simplificada")
-                          : t("Completa")}
+                          : m.interface_settings?.preset === "suporte"
+                            ? t("Suporte")
+                            : t("Completa")}
                     </Button>
                   ) : (
                     <span>
@@ -145,7 +147,9 @@ export function TeamMembersClient({ currentUserId, canManage }: Props) {
                         ? t("Personalizada")
                         : m.interface_settings?.preset === "simplificada"
                           ? t("Simplificada")
-                          : t("Completa")}
+                          : m.interface_settings?.preset === "suporte"
+                            ? t("Suporte")
+                            : t("Completa")}
                     </span>
                   )}
                 </TableCell>

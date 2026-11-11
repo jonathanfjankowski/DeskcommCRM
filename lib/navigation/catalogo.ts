@@ -1064,6 +1064,19 @@ export const NAV_CATALOG = [
     minRole: "manager",
   },
   {
+    // A triagem determinística por número (spec 2026-11-11 §4): mora no grupo
+    // e na seção da tela-mãe porque É uma prancheta dela — o mesmo gate
+    // (manager+) e o mesmo assunto (quem atende, com quais palavras).
+    href: "/app/settings/atendimento/menu-de-entrada",
+    label: "Menu de entrada",
+    description:
+      "A triagem por número que atende antes de qualquer IA — textos, opções e setor padrão do WhatsApp.",
+    icon: "Signpost",
+    group: "organizacao",
+    section: "Sua empresa",
+    minRole: "manager",
+  },
+  {
     // A porta do freio POR EMPRESA do passo `ai_decide` (issue #2367). O #2228
     // criou o passo e o deixou opcional POR REGRA; sem esta tela, desligar de
     // uma vez todos os `ai_decide` de uma organização só existiria como
