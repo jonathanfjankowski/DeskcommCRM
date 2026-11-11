@@ -83,6 +83,17 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<Response> {
   const parsed = z.object({
     expected_revision: z.number().int().positive().optional(),
     devolver_ao_automatico: z.boolean().optional(),
+    // Registro de atendimento (spec 2026-11-11 §5): título obrigatório quando o
+    // corpo pede o registro, conteúdo opcional, desfecho com o padrão da tela.
+    registro: z
+      .object({
+        titulo: z.string().trim().min(1).max(200),
+        conteudo: z.string().trim().max(5000).nullish(),
+        desfecho: z
+          .enum(["resolvida", "convertida", "nao_procede", "encerrada_pelo_cliente", "perdida", "expirada_sem_resposta"])
+          .default("resolvida"),
+      })
+      .optional(),
   }).safeParse(body);
   if (!parsed.success) return fail("validation_failed", "Revisão inválida.", 422, { requestId });
   const { id } = await ctx.params;
@@ -95,7 +106,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<Response> {
   const user = authz.user;
 
   const { data: visible, error: readError } = await supabase.from("conversations")
-    .select("id, organization_id, assigned_to_user_id, service_revision").eq("id", id)
+    .select("id, organization_id, assigned_to_user_id, service_revision, current_demanda_id").eq("id", id)
     .eq("organization_id", authz.org.orgId).maybeSingle();
   if (readError) return fail("internal_error", readError.message, 500, { requestId });
   if (!visible) return fail("not_found", t("Conversa não encontrada."), 404, { requestId });
@@ -166,6 +177,61 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<Response> {
     conflito ? 409 : 500, { requestId });
   const convFechada = data as unknown as Conversation;
 
+  // (4) O REGISTRO DE ATENDIMENTO vem DEPOIS do fechamento — a mesma filosofia
+  // da devolução: fechar é o gesto pedido e não cai por causa do registro. Se a
+  // demanda sumiu, encerrou noutra mão ou o CAS estourou, o motivo viaja no
+  // corpo; a conversa fechada já gravou em `proximo_passo` o lembrete de
+  // "registrar o desfecho", que segue visível e cobrável.
+  let registro: { ok: boolean; motivo?: string } | null = null;
+  if (parsed.data.registro) {
+    const demandaId = (visible as { current_demanda_id?: string | null }).current_demanda_id ?? null;
+    if (!demandaId) {
+      registro = { ok: false, motivo: "sem_demanda" };
+    } else {
+      const db = createAdminClient();
+      const { data: demanda, error: erroLeitura } = await db
+        .from("demandas")
+        .select("id, revision, fechada_em")
+        .eq("id", demandaId)
+        .eq("organization_id", visible.organization_id)
+        .maybeSingle();
+      if (erroLeitura || !demanda) {
+        registro = { ok: false, motivo: erroLeitura ? "demanda_erro" : "sem_demanda" };
+      } else if (demanda.fechada_em !== null) {
+        registro = { ok: false, motivo: "demanda_ja_encerrada" };
+      } else {
+        const encerrada = await db.rpc("fn_demanda_encerrar", {
+          p_org: visible.organization_id,
+          p_demanda: demanda.id,
+          p_expected: demanda.revision,
+          p_desfecho: parsed.data.registro.desfecho,
+          p_actor: user.id,
+          p_titulo: parsed.data.registro.titulo,
+          p_resumo: parsed.data.registro.conteudo ?? null,
+        });
+        if (encerrada.error) {
+          const codigo = (encerrada.error as { code?: string }).code;
+          registro =
+            codigo === "PT409" || codigo === "40001"
+              ? { ok: false, motivo: "demanda_mudou" }
+              : codigo === "P0002"
+                ? { ok: false, motivo: "sem_demanda" }
+                : { ok: false, motivo: "demanda_erro" };
+          if (registro.motivo === "demanda_erro") {
+            logger.error("[conversations.close] encerrar a demanda com registro falhou", {
+              conversation_id: id,
+              organization_id: visible.organization_id,
+              erro: encerrada.error.message,
+              requestId,
+            });
+          }
+        } else {
+          registro = { ok: true };
+        }
+      }
+    }
+  }
+
   await audit({
     action: "conversation.closed",
     actorUserId: user.id,
@@ -173,9 +239,19 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<Response> {
     resourceType: "conversation",
     resourceId: convFechada.id,
     requestId,
+    ...(parsed.data.registro
+      ? { metadata: { registro: { ok: registro?.ok ?? false, desfecho: parsed.data.registro.desfecho, conteudo: parsed.data.registro.conteudo !== null && parsed.data.registro.conteudo !== undefined } } }
+      : {}),
   });
 
-  return ok(devolucao === null ? convFechada : { ...convFechada, devolucao }, { requestId });
+  return ok(
+    {
+      ...convFechada,
+      ...(devolucao !== null ? { devolucao } : {}),
+      ...(registro !== null ? { registro } : {}),
+    },
+    { requestId },
+  );
 }
 
 /**

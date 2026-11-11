@@ -58,16 +58,13 @@ function entrada(parcial: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   decide.mockResolvedValue({ liberado: true });
-  janelaDeEnvioAberta.mockReturnValue(true);
-  restricaoComercialBarra.mockResolvedValue(false as never);
-  canalDaConversa.mockResolvedValue("sessao-1" as never);
-  knobsDoCanal.mockResolvedValue({ janela: true } as never);
-  vi.mocked(sendMessageHandler).mockImplementation(async (_db, _ctx, corpo) => ({
-    id: CHAVE,
-    status: "queued",
-    external_id: null,
-    ...(corpo as Record<string, unknown>),
-  }));
+  vi.mocked(janelaDeEnvioAberta).mockReturnValue(true);
+  vi.mocked(restricaoComercialBarra).mockResolvedValue(false as never);
+  vi.mocked(canalDaConversa).mockResolvedValue("sessao-1" as never);
+  vi.mocked(knobsDoCanal).mockResolvedValue({ janela: true } as never);
+  vi.mocked(sendMessageHandler).mockImplementation(async (_db, _ctx, corpo) =>
+    ({ id: CHAVE, status: "queued", external_id: null, ...(corpo as Record<string, unknown>) }) as never,
+  );
 });
 
 describe("enviarTextoDeSistema", () => {
@@ -102,7 +99,7 @@ describe("enviarTextoDeSistema", () => {
   });
 
   it("janela de disparo do canal fechada: adia para a abertura, SEM enviar", async () => {
-    janelaDeEnvioAberta.mockReturnValue(false);
+    vi.mocked(janelaDeEnvioAberta).mockReturnValue(false);
     const r = await enviarTextoDeSistema({} as SupabaseClient, entrada());
     expect(r.resultado).toBe("adiado");
     expect(r.ate?.toISOString()).toBe("2026-11-12T08:00:00.000Z");
@@ -110,7 +107,7 @@ describe("enviarTextoDeSistema", () => {
   });
 
   it("restrição comercial barra o texto de operador também aqui: bloqueado, sem enviar", async () => {
-    restricaoComercialBarra.mockResolvedValue(true as never);
+    vi.mocked(restricaoComercialBarra).mockResolvedValue(true as never);
     const r = await enviarTextoDeSistema({} as SupabaseClient, entrada());
     expect(r.resultado).toBe("bloqueado");
     expect(sendMessageHandler).not.toHaveBeenCalled();
@@ -118,7 +115,7 @@ describe("enviarTextoDeSistema", () => {
 
   it("ritmo anti-ban não liberado: adia com o instante do ritmo, sem enviar", async () => {
     const liberaEm = new Date("2026-11-11T18:00:30Z");
-    decide.mockResolvedValue({ liberado: false, motivo: "espacamento", liberaEm });
+    decide.mockResolvedValue({ liberado: false, motivo: "espacamento", liberaEm } as never);
     const r = await enviarTextoDeSistema({} as SupabaseClient, entrada());
     expect(r.resultado).toBe("adiado");
     expect(r.ate?.toISOString()).toBe(liberaEm.toISOString());
@@ -126,7 +123,7 @@ describe("enviarTextoDeSistema", () => {
   });
 
   it("canal sem sessão (conversa órfã): não há janela nem ritmo a consultar — ainda envia", async () => {
-    canalDaConversa.mockResolvedValue(null as never);
+    vi.mocked(canalDaConversa).mockResolvedValue(null as never);
     const r = await enviarTextoDeSistema({} as SupabaseClient, entrada());
     expect(r.resultado).toBe("queued");
     expect(knobsDoCanal).not.toHaveBeenCalled();
