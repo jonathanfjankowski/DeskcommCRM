@@ -91,17 +91,19 @@ describe("SeletorDeEmpresa", () => {
     await waitFor(() => expect(screen.getByLabelText("Empresa")).toHaveValue("UFU Telecom"));
   });
 
-  it("`Limpar` devolve null e some com o nome", async () => {
+  it("`Limpar` devolve null e o nome some com o valor (pais controlado)", async () => {
     vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
       if (path.startsWith("/api/v1/companies?")) return { data: LISTA } as never;
       return { data: { company: LISTA[0] } } as never;
     });
     const aoEscolher = vi.fn();
-    render(<SeletorDeEmpresa value={EMPRESA} onChange={aoEscolher} />);
+    const { rerender } = render(<SeletorDeEmpresa value={EMPRESA} onChange={aoEscolher} />);
 
     const limpar = await screen.findByRole("button", { name: "Limpar" });
     await userEvent.click(limpar);
     expect(aoEscolher).toHaveBeenCalledWith(null);
+    // o rótulo é DERIVADO do `value`: o pai controlado devolve null, o nome vai junto
+    rerender(<SeletorDeEmpresa value={null} onChange={aoEscolher} />);
     expect(screen.getByLabelText("Empresa")).toHaveValue("");
   });
 

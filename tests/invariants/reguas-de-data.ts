@@ -266,6 +266,11 @@ export function reguasDeData(pool: pg.Pool): ReguaDeData[] {
  */
 export const FORA_DA_LISTA: readonly { arquivo: string; motivo: string }[] = [
   {
+    arquivo: "lib/atendimento/envio-de-sistema.ts",
+    motivo:
+      "os dois `instanceof Date` ramificam sobre instantes JÁ calculados em processo (a próxima abertura da janela e o `liberaEm` do pacing), não sobre leitura de armazenamento; o retry consome a normalização, e o relógio que decide é injetável nos testes",
+  },
+  {
     arquivo: "lib/agent-engine/agent/inbound-turn.ts",
     motivo:
       "é a ESCRITA do snapshot do caso (`sent_at instanceof Date ? toISOString : String`), não uma régua de leitura; quem decide a hora na leitura é `falasDoSnapshot`, coberto",

@@ -18,7 +18,7 @@
  * Qualquer falha de leitura tem o mesmo destino: renderizar nada. O campo é
  * conveniência; conveniência que não responde é ruído.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,11 +49,15 @@ export function SeletorDeEmpresa({ value, onChange, disabled }: Props) {
   const [busca, setBusca] = useState("");
   const [opcoes, setOpcoes] = useState<EmpresaOpcao[]>([]);
   const [aberto, setAberto] = useState(false);
-  /** O nome da empresa escolhida — pode não estar na página que a busca traz. */
-  const [rotulo, setRotulo] = useState("");
+  /**
+   * O NOME da última empresa resolvida pela ficha (GET /{id}). O rótulo do
+   * valor escolhido é DERIVADO na renderização (lista → nome da lista; ficha →
+   * `rotuloResolvido`) — guardar `rotulo` em estado sincronizado por efeito é
+   * render em cascata, e o lint da casa reprova.
+   */
+  const [rotuloResolvido, setRotuloResolvido] = useState<{ id: string; nome: string } | null>(null);
   /** Módulo B2B desligado ou leitura sem resposta: o campo se auto-esconde. */
   const [escondido, setEscondido] = useState(false);
-  const idResolvido = useRef<string | null>(null);
 
   const carregar = useCallback(async (termo: string) => {
     const qs = termo.trim() ? `&search=${encodeURIComponent(termo.trim())}` : "";
@@ -81,44 +85,45 @@ export function SeletorDeEmpresa({ value, onChange, disabled }: Props) {
   // herdada na criação, ou filtro que mudou depois. Sem pedir o nome à ficha,
   // a tela de edição mostraria campo vazio sobre um valor GRAVADO, e "não
   // mexi em nada" passaria a gravar null. Um GET pontual por id escolhido é o
-  // preço de não mentir na tela.
+  // preço de não mentir na tela. Não está na lista NÃO é estado a limpar: a
+  // exibição cai na derivação; aqui só se busca o que falta, uma vez por id.
+  const precisaDoNome = Boolean(value) && !opcoes.some((o) => o.id === value) && rotuloResolvido?.id !== value;
   useEffect(() => {
-    if (!value) {
-      idResolvido.current = null;
-      setRotulo("");
-      return;
-    }
-    const naLista = opcoes.find((o) => o.id === value);
-    if (naLista) {
-      idResolvido.current = value;
-      setRotulo(nomeDaEmpresa(naLista));
-      return;
-    }
-    if (idResolvido.current === value) return;
+    if (!value || !precisaDoNome) return;
     let cancelado = false;
     void (async () => {
       try {
         const r = await apiClient.get<{ data: { company: EmpresaOpcao } }>(
           `/api/v1/companies/${value}`,
         );
-        if (!cancelado) {
-          idResolvido.current = value;
-          setRotulo(nomeDaEmpresa(r.data.company));
-        }
+        if (!cancelado) setRotuloResolvido({ id: value, nome: nomeDaEmpresa(r.data.company) });
       } catch {
-        // Sem ficha, sem nome: o valor continua o que é, só não tem rótulo.
-        if (!cancelado) setRotulo("");
+        // Sem ficha, sem nome: o valor continua o que é, e a tentativa não
+        // repete a cada render — `{ id, nome: "" }` marca como resolvido.
+        if (!cancelado) setRotuloResolvido({ id: value, nome: "" });
       }
     })();
     return () => {
       cancelado = true;
     };
-  }, [value, opcoes]);
+  }, [value, precisaDoNome]);
 
   // O campo DESAPARECE quando não tem a quem perguntar — e some sem deixar
   // buraco no formulário: quem preenche não pode saber que existe um módulo
   // desligado por decisão da plataforma.
   if (escondido) return null;
+
+  // NOME EXIBIDO, derivado: da página da busca quando o escolhido está nela,
+  // senão do que a ficha resolveu. Estado sincronizado por efeito é render em
+  // cascata — a derivação lê o mesmo fato sem setState.
+  const naLista = value ? opcoes.find((o) => o.id === value) : undefined;
+  const nomeEscolhido = value
+    ? naLista
+      ? nomeDaEmpresa(naLista)
+      : rotuloResolvido?.id === value
+        ? rotuloResolvido.nome
+        : ""
+    : "";
 
   return (
     <div className="relative">
@@ -126,7 +131,7 @@ export function SeletorDeEmpresa({ value, onChange, disabled }: Props) {
         <Input
           aria-label={t("Empresa")}
           placeholder={t("Buscar empresa por nome ou CNPJ")}
-          value={busca || rotulo}
+          value={busca || nomeEscolhido}
           disabled={disabled}
           onFocus={() => setAberto(true)}
           onBlur={() => setAberto(false)}
@@ -150,7 +155,6 @@ export function SeletorDeEmpresa({ value, onChange, disabled }: Props) {
             onClick={() => {
               onChange(null);
               setBusca("");
-              setRotulo("");
             }}
           >
             {t("Limpar")}
@@ -175,7 +179,6 @@ export function SeletorDeEmpresa({ value, onChange, disabled }: Props) {
                 onClick={() => {
                   onChange(opcao.id);
                   setBusca("");
-                  setRotulo(nomeDaEmpresa(opcao));
                   setAberto(false);
                 }}
                 className="w-full truncate rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
