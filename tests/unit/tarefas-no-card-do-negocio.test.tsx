@@ -75,6 +75,7 @@ function tarefa(resto: Partial<Tarefa> = {}): Tarefa {
     lead_id: "l-1",
     contact_id: "c-1",
     demanda_id: null,
+    company_id: null,
     assigned_to: null,
     created_by: EU,
     created_at: "2026-10-01T12:00:00Z",

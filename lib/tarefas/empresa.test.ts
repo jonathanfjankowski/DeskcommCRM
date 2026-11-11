@@ -37,7 +37,7 @@ function bancoFake(linhas: Record<string, Record<string, unknown> | null | Error
   const filtros: Array<[string, string, unknown]> = [];
   const banco = {
     from: (tabela: string) => {
-      let le: Array<[string, unknown]> = [];
+      const le: Array<[string, unknown]> = [];
       const elo = {
         select: () => elo,
         eq: (col: string, val: unknown) => {
