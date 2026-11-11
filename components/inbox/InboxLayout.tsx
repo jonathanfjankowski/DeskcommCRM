@@ -31,6 +31,7 @@ import { ChatThread } from "./ChatThread";
 import { Composer, type ComposerHandle } from "./Composer";
 import { ConversationHeader } from "./ConversationHeader";
 import { BotaoIniciarConversa } from "./PainelIniciarConversa";
+import { BotaoSomDaFila } from "./BotaoSomDaFila";
 import { RetentionNotice } from "./RetentionNotice";
 import { CRMSidePanel } from "./CRMSidePanel";
 import type { ModuloDaLateral } from "@/lib/inbox/modulos-da-lateral";
@@ -966,7 +967,14 @@ export function InboxLayout({
           colunas.lista,
         )}
       >
-        <BotaoIniciarConversa />
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <BotaoIniciarConversa />
+          </div>
+          {/* O sino do plantão (spec 2026-11-11 §8): ao lado do iniciar conversa,
+              na coluna da lista — onde a fila vive. */}
+          <BotaoSomDaFila />
+        </div>
         <InboxFilters
           value={filterValue}
           onChange={setFilterValue}

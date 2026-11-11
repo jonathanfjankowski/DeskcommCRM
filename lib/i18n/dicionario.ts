@@ -1978,6 +1978,9 @@ export const DICIONARIO: Traducoes = {
   "Empresa vinculada.": { es: "Empresa vinculada." },
   "Não foi possível vincular a empresa.": { es: "No fue posible vincular la empresa." },
   "Vincular": { es: "Vincular" },
+  // Som de entrada na fila (spec 2026-11-11 §8).
+  "Som da fila": { es: "Sonido de la cola" },
+  "Avisa com um som quando um cliente entra na fila": { es: "Avisa con un sonido cuando un cliente entra en la cola" },
   // Registro de atendimento ao fechar (spec 2026-11-11 §5).
   "Registrar o atendimento": { es: "Registrar la atenci\u00f3n" },
   "Ex.: Impressora sem responder": { es: "Ej.: Impresora sin respuesta" },
