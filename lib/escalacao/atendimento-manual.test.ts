@@ -103,6 +103,9 @@ function iaCaladaEm(ate: Date, quando: Date): boolean {
   const d = decidirElegibilidade({
     orgStatus: "active",
     canalDesativado: false,
+    // Spec 2026-11-11: chave nova do estado; o isolamento deste teste é o
+    // silêncio, o modo humano fica desligado.
+    somenteHumano: false,
     modo: "open",
     forceHuman: false,
     contatoInterno: false,
