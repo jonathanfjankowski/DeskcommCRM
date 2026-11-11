@@ -1,3 +1,4 @@
+import type { Pool } from "pg";
 import { describe, expect, it, vi } from "vitest";
 
 import { deveCederTurnoAoMenu } from "./ceder-turno";
@@ -15,15 +16,16 @@ import { deveCederTurnoAoMenu } from "./ceder-turno";
  * do handler; as duas metades divergirem é o turno IA+menu na mesma mensagem.
  */
 type QueryFn = (sql: string, params?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }>;
+type PoolComQueryMock = Pick<Pool, "query"> & { query: ReturnType<typeof vi.fn<QueryFn>> };
 
-function poolDe(linhas: Array<Record<string, unknown>> | "lança") {
+function poolDe(linhas: Array<Record<string, unknown>> | "lança"): PoolComQueryMock {
   const query = vi.fn<QueryFn>(async () => {
     if (linhas === "lança") throw new Error("banco fora do ar");
     return { rows: linhas };
   });
   // Pool.query tem sobrecargas demais para o mock caber direto; o cast é só da
   // fronteira do teste — a função chamada é exatamente a que a implementação usa.
-  return { query } as unknown as { query: ReturnType<typeof vi.fn<QueryFn>> };
+  return { query } as unknown as PoolComQueryMock;
 }
 
 const PEDIDO = { organizationId: "org-1", conversationId: "conv-1" };
