@@ -177,20 +177,16 @@ export async function PUT(req: NextRequest): Promise<Response> {
   if (upsertConfig) return fail("internal_error", upsertConfig.message, 500, { requestId });
   if (!menu) return fail("internal_error", "A configuração não foi devolvida.", 500, { requestId });
 
-  // As opções novas SUBSTITUEM o conjunto: o que SAIU do menu é apagado (a
-  // lista de id aceita é a exceção escrita da doutrina — pequena e conferida
-  // acima), o que ficou é atualizado no lugar (rótulo e ordem) — sem renumerar
-  // nada no cliente, porque o número exibido ao cliente sai da `ordem` gravada.
-  const baseDelete = admin
+  // As opções novas SUBSTITUEM o conjunto. Substituição TOTAL (apagar tudo do
+  // menu e regravar): `.not(col,"in",…)` não é filtro confiável no PostgREST
+  // (medido em produção como PUT 500 com "failed to parse filter not.in.[…]")
+  // e o PUT já é o gesto "esta é a lista", feito pela tela com requisição única.
+  // Rótulo/ordem vêm inteiros no corpo, então não há o que "atualizar no lugar".
+  const { error: apagar } = await admin
     .from("menu_de_entrada_opcoes")
     .delete()
     .eq("organization_id", orgId)
     .eq("menu_id", menu.id);
-  const manter = input.opcoes.map((o) => o.sector_id);
-  const { error: apagar } =
-    manter.length > 0
-      ? await baseDelete.not("sector_id", "in", JSON.stringify(manter))
-      : await baseDelete;
   if (apagar) return fail("internal_error", apagar.message, 500, { requestId });
   if (input.opcoes.length > 0) {
     const { error: gravarOpcoes } = await admin
